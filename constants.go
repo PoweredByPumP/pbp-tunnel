@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"golang.org/x/crypto/ssh"
-	"io/ioutil"
 	"os"
 )
 
@@ -153,10 +152,6 @@ func (sp *ServerParameters) Validate() error {
 	return nil
 }
 
-func (sp *ServerParameters) GetFormattedAddress() string {
-	return fmt.Sprintf("%s:%d", sp.BindAddress, sp.BindPort)
-}
-
 func (sp *ServerParameters) GetPrivateKeyBytes() ([]byte, error) {
 	var privateKey []byte
 	var err error
@@ -168,7 +163,7 @@ func (sp *ServerParameters) GetPrivateKeyBytes() ([]byte, error) {
 		}
 	}
 
-	privateKey, err = ioutil.ReadFile(sp.PrivateKeyPath)
+	privateKey, err = os.ReadFile(sp.PrivateKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading private key file: %v", err)
 	}
@@ -181,7 +176,7 @@ func (sp *ServerParameters) GetAuthorizedKeysBytes() ([]byte, error) {
 	var err error
 
 	if sp.AuthorizedKeysPath != "" {
-		authorizedKeys, err = ioutil.ReadFile(sp.AuthorizedKeysPath)
+		authorizedKeys, err = os.ReadFile(sp.AuthorizedKeysPath)
 		if err != nil {
 			return nil, fmt.Errorf("error reading authorized keys file: %v", err)
 		}

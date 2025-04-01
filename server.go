@@ -18,13 +18,15 @@ type PortForward struct {
 }
 
 type ForwardServer struct {
-	addr           string
-	config         *ssh.ServerConfig
-	portRangeStart int
-	portRangeEnd   int
-	allowedIPs     []string
-	forwards       map[int]*PortForward
-	forwardsLock   sync.Mutex
+	address          string
+	port             int
+	formattedAddress string
+	config           *ssh.ServerConfig
+	portRangeStart   int
+	portRangeEnd     int
+	allowedIPs       []string
+	forwards         map[int]*PortForward
+	forwardsLock     sync.Mutex
 }
 
 func Server(spOverride *ServerParameters) *ForwardServer {
@@ -56,22 +58,26 @@ func Server(spOverride *ServerParameters) *ForwardServer {
 	}
 
 	return &ForwardServer{
-		addr:           sp.GetFormattedAddress(),
-		config:         config,
-		portRangeStart: sp.PortRangeStart,
-		portRangeEnd:   sp.PortRangeEnd,
-		allowedIPs:     sp.AllowedIPs,
-		forwards:       make(map[int]*PortForward),
+		address:          sp.BindAddress,
+		port:             sp.BindPort,
+		formattedAddress: fmt.Sprintf("%s:%d", sp.BindAddress, sp.BindPort),
+		config:           config,
+		portRangeStart:   sp.PortRangeStart,
+		portRangeEnd:     sp.PortRangeEnd,
+		allowedIPs:       sp.AllowedIPs,
+		forwards:         make(map[int]*PortForward),
 	}
 }
 
 func (s *ForwardServer) Start() error {
-	listener, err := net.Listen("tcp", s.addr)
+	listener, err := net.Listen("tcp", s.formattedAddress)
 	if err != nil {
-		return fmt.Errorf("cannot bind address %s: %v", s.addr, err)
+		return fmt.Errorf("cannot bind address %s: %v", s.formattedAddress, err)
 	}
-	defer listener.Close()
-	log.Printf("Server bind to address %s", s.addr)
+	defer func(listener net.Listener) {
+		_ = listener.Close()
+	}(listener)
+	log.Printf("Server bind to address %s", s.formattedAddress)
 
 	for {
 		conn, err := listener.Accept()
@@ -84,33 +90,35 @@ func (s *ForwardServer) Start() error {
 }
 
 func (s *ForwardServer) handleConnection(conn net.Conn) {
-	sshConn, chans, reqs, err := ssh.NewServerConn(conn, s.config)
+	sshConn, channels, reqs, err := ssh.NewServerConn(conn, s.config)
 	if err != nil {
 		log.Printf("SSH handshake failed: %v", err)
 		return
 	}
 
-	defer sshConn.Close()
+	defer func(sshConn *ssh.ServerConn) {
+		_ = sshConn.Close()
+	}(sshConn)
 
 	remoteIP, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 	if err != nil {
 		log.Printf("Failed to parse remote address: %v", err)
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
 	if !s.isIPAllowed(remoteIP) {
 		log.Printf("Connection refused from disallowed IP: %s", remoteIP)
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
 	log.Printf("New SSH connection from %s", sshConn.RemoteAddr())
 	go ssh.DiscardRequests(reqs)
 
-	for newChannel := range chans {
+	for newChannel := range channels {
 		if newChannel.ChannelType() != "direct-tcpip" {
-			newChannel.Reject(ssh.UnknownChannelType, "unsupported channel type")
+			_ = newChannel.Reject(ssh.UnknownChannelType, "unsupported channel type")
 			continue
 		}
 
@@ -123,22 +131,22 @@ func (s *ForwardServer) handleConnection(conn net.Conn) {
 		portBuf := make([]byte, 4)
 		if _, err := io.ReadFull(channel, portBuf); err != nil {
 			log.Printf("Failed to read port: %v", err)
-			channel.Close()
+			_ = channel.Close()
 			continue
 		}
 
 		requested := int(binary.BigEndian.Uint32(portBuf))
-		port := s.resolveAvailablePort(requested)
+		port := s.assignPort(requested)
 		if port == 0 {
 			log.Printf("No available ports")
-			channel.Close()
+			_ = channel.Close()
 			continue
 		}
 
 		respBuf := make([]byte, 4)
 		binary.BigEndian.PutUint32(respBuf, uint32(port))
-		channel.Write(respBuf)
-		channel.Close()
+		_, _ = channel.Write(respBuf)
+		_ = channel.Close()
 
 		done := make(chan struct{})
 		s.forwardsLock.Lock()
@@ -171,9 +179,14 @@ func (s *ForwardServer) isIPAllowed(ip string) bool {
 	return false
 }
 
-func (s *ForwardServer) resolveAvailablePort(requested int) int {
+func (s *ForwardServer) assignPort(requested int) int {
 	s.forwardsLock.Lock()
 	defer s.forwardsLock.Unlock()
+
+	if requested == s.port {
+		return 0
+	}
+
 	if requested != 0 {
 		if requested >= s.portRangeStart && requested <= s.portRangeEnd {
 			if _, exists := s.forwards[requested]; !exists {
@@ -200,8 +213,8 @@ func (s *ForwardServer) listenAndForward(port int, sshConn *ssh.ServerConn, done
 	log.Printf("[+] Port %d exposed to external world", port)
 
 	go func() {
-		sshConn.Wait()
-		listener.Close()
+		_ = sshConn.Wait()
+		_ = listener.Close()
 		close(done)
 	}()
 
@@ -215,14 +228,16 @@ func (s *ForwardServer) listenAndForward(port int, sshConn *ssh.ServerConn, done
 			channel, reqs, err := sshConn.OpenChannel("direct-tcpip", nil)
 			if err != nil {
 				log.Printf("Failed to open channel to client: %v", err)
-				c.Close()
+				_ = c.Close()
 				return
 			}
 			go ssh.DiscardRequests(reqs)
-			go io.Copy(channel, c)
-			io.Copy(c, channel)
-			channel.Close()
-			c.Close()
+			go func() {
+				_, _ = io.Copy(channel, c)
+			}()
+			_, _ = io.Copy(c, channel)
+			_ = channel.Close()
+			_ = c.Close()
 		}(conn)
 	}
 }
