@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
@@ -25,16 +24,16 @@ func main() {
 
 	if mode == "" {
 		if mode = guessType(); mode == "" {
-			fmt.Println("Cannot guess mode from JSON config. Please specify the `type` attribute as 'client' or 'server'.")
+			fmt.Println("No mode were specified or cannot guess mode from JSON config. Please specify the `type` attribute as 'client' or 'server' in program arguments or JSON config.")
 			os.Exit(1)
 		}
 	}
 
 	switch mode {
 	case "client":
-		Client(loadClientConfig())
+		Client(LoadClientConfig())
 	case "server":
-		server := Server(loadServerConfig())
+		server := Server(LoadServerConfig())
 
 		err := server.Start()
 		if err != nil {
@@ -67,51 +66,9 @@ func generatePrivateKey(filePath string) ([]byte, error) {
 }
 
 func guessType() string {
-	if config := loadConfig(); config != nil && (config.Type == "client" || config.Type == "server") {
+	if config := LoadConfig(); config != nil && (config.Type == "client" || config.Type == "server") {
 		return config.Type
 	}
 
 	return ""
-}
-
-func loadClientConfig() *ClientParameters {
-	config := loadConfig()
-	if config != nil && config.Type == "client" && config.Client != nil {
-		return config.Client
-	}
-
-	return nil
-}
-
-func loadServerConfig() *ServerParameters {
-	config := loadConfig()
-	if config != nil && config.Type == "server" && config.Server != nil {
-		return config.Server
-	}
-
-	return nil
-}
-
-func loadConfig() *AppConfig {
-	filePath := GetAppProperty("config", "")
-
-	configFile, err := os.Open(filePath)
-	if err != nil {
-		return nil
-	}
-
-	defer configFile.Close()
-
-	configData, err := ioutil.ReadAll(configFile)
-	if err != nil {
-		return nil
-	}
-
-	var config AppConfig
-	err = json.Unmarshal(configData, &config)
-	if err != nil {
-		return nil
-	}
-
-	return &config
 }

@@ -1,12 +1,18 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"os"
+	"strconv"
 	"strings"
 )
 
-func GetAppProperty(key, defaultValue string) string {
-	key = "PBP_" + strings.ReplaceAll(strings.ToUpper(key), "-", "_")
+var envConfig *AppConfig
+
+func GetEnvValue(key, defaultValue string) string {
+	key = "PBP_TUNNEL_" + strings.ReplaceAll(strings.ToUpper(key), "-", "_")
 
 	envValue, found := os.LookupEnv(key)
 	if found {
@@ -14,4 +20,121 @@ func GetAppProperty(key, defaultValue string) string {
 	}
 
 	return defaultValue
+}
+
+func LoadClientConfig() *ClientParameters {
+	config := LoadConfig()
+	if config != nil && config.Type == "client" && config.Client != nil {
+		return config.Client
+	}
+
+	return nil
+}
+
+func LoadServerConfig() *ServerParameters {
+	config := LoadConfig()
+	if config != nil && config.Type == "server" && config.Server != nil {
+		return config.Server
+	}
+
+	return nil
+}
+
+func LoadConfig() *AppConfig {
+	if envConfig == nil {
+		envConfig = LoadEnvConfig()
+	}
+
+	filePath := GetEnvValue("config", "")
+	if filePath == "" {
+		return envConfig
+	}
+
+	configFile, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+
+	defer configFile.Close()
+
+	configData, err := ioutil.ReadAll(configFile)
+	if err != nil {
+		return nil
+	}
+
+	var config AppConfig
+	err = json.Unmarshal(configData, &config)
+	if err != nil {
+		return nil
+	}
+
+	return &config
+}
+
+func LoadEnvConfig() *AppConfig {
+	var err error
+
+	config := &AppConfig{
+		Type:   GetEnvValue("type", ""),
+		Client: &ClientParameters{},
+		Server: &ServerParameters{},
+	}
+
+	config.Client.Endpoint = GetEnvValue("endpoint", CpDefaultEndpoint)
+	config.Client.EndpointPort, err = strconv.Atoi(GetEnvValue("port", strconv.Itoa(CpDefaultEndpointPort)))
+	if err != nil {
+		fmt.Println("Invalid environment port value, using default")
+		config.Client.EndpointPort = CpDefaultEndpointPort
+	}
+
+	config.Client.Username = GetEnvValue("username", CpDefaultUsername)
+	config.Client.Password = GetEnvValue("password", CpDefaultPassword)
+	config.Client.PrivateKeyPath = GetEnvValue("identity", CpDefaultPrivateKeyPath)
+	config.Client.HostKeyPath = GetEnvValue("host_key", CpDefaultHostKeyPath)
+	config.Client.LocalHost = GetEnvValue("local_host", CpDefaultLocalHost)
+	config.Client.LocalPort, err = strconv.Atoi(GetEnvValue("local_port", strconv.Itoa(CpDefaultLocalPort)))
+	if err != nil {
+		fmt.Println("Invalid environment local port value, using default")
+		config.Client.LocalPort = CpDefaultLocalPort
+	}
+
+	config.Client.RemoteHost = GetEnvValue("remote_host", CpDefaultRemoteHost)
+	config.Client.RemotePort, err = strconv.Atoi(GetEnvValue("remote_port", strconv.Itoa(CpDefaultRemotePort)))
+	if err != nil {
+		fmt.Println("Invalid environment remote port value, using default")
+		config.Client.RemotePort = CpDefaultRemotePort
+	}
+
+	config.Client.HostKeyLevel, err = strconv.Atoi(GetEnvValue("host_key_level", strconv.Itoa(CpDefaultHostKeyLevel)))
+	if err != nil {
+		fmt.Println("Invalid environment host key level value, using default")
+		config.Client.HostKeyLevel = CpDefaultHostKeyLevel
+	}
+
+	config.Server.BindAddress = GetEnvValue("bind_address", SpDefaultBindAddress)
+	config.Server.BindPort, err = strconv.Atoi(GetEnvValue("bind_port", strconv.Itoa(SpDefaultBindPort)))
+	if err != nil {
+		fmt.Println("Invalid environment bind port value, using default")
+		config.Server.BindPort = SpDefaultBindPort
+	}
+
+	config.Server.PortRangeStart, err = strconv.Atoi(GetEnvValue("port_range_start", strconv.Itoa(SpDefaultPortRangeStart)))
+	if err != nil {
+		fmt.Println("Invalid environment port range start value, using default")
+		config.Server.PortRangeStart = SpDefaultPortRangeStart
+	}
+
+	config.Server.PortRangeEnd, err = strconv.Atoi(GetEnvValue("port_range_end", strconv.Itoa(SpDefaultPortRangeEnd)))
+	if err != nil {
+		fmt.Println("Invalid environment port range end value, using default")
+		config.Server.PortRangeEnd = SpDefaultPortRangeEnd
+	}
+
+	config.Server.Username = GetEnvValue("username", SpDefaultUsername)
+	config.Server.Password = GetEnvValue("password", SpDefaultPassword)
+	config.Server.PrivateKeyPath = GetEnvValue("private_key_path", SpDefaultPrivateKey)
+	config.Server.AuthorizedKeysPath = GetEnvValue("authorized_keys_path", SpDefaultAuthorizedKeys)
+	config.Server.AllowedIPs = strings.Split(strings.TrimSpace(GetEnvValue("allowed_ips", "")), ",")
+
+	return config
 }
