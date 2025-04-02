@@ -58,7 +58,6 @@ func Client(cpOverride *ClientParameters) {
 		log.Println("Connected to server")
 		handleClientSession(connection, cp)
 
-		retryCount = 0
 		log.Println("Disconnected from server, retrying...")
 	}
 }
