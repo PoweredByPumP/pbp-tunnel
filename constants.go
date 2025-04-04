@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"golang.org/x/crypto/ssh"
 	"os"
+	"strings"
 )
 
 const DefaultEndpointPort int = 52135
@@ -97,22 +98,39 @@ func (a *AllowedIPs) Set(value string) error {
 }
 
 func (cp *ClientParameters) Validate() error {
-	if cp.Endpoint == "" ||
-		cp.EndpointPort == 0 ||
-		cp.Username == "" ||
-		cp.Password == "" ||
-		cp.LocalHost == "" ||
-		cp.LocalPort == 0 ||
-		cp.RemoteHost == "" {
-		return fmt.Errorf("missing required parameters: %s, %s, %s, %s, %s, %s, %s",
-			CpKeyEndpoint, CpKeyEndpointPort, CpKeyUsername, CpKeyPassword, CpKeyLocalHost, CpKeyLocalPort, CpKeyRemoteHost)
+	var missingParams []string
+
+	if cp.Endpoint == "" {
+		missingParams = append(missingParams, CpKeyEndpoint)
+	}
+	if cp.EndpointPort == 0 {
+		missingParams = append(missingParams, CpKeyEndpointPort)
+	}
+	if cp.Username == "" {
+		missingParams = append(missingParams, CpKeyUsername)
+	}
+	if cp.Password == "" && cp.PrivateKeyPath == "" {
+		missingParams = append(missingParams, CpKeyPassword+" or "+CpKeyPrivateKeyPath)
+	}
+	if cp.LocalHost == "" {
+		missingParams = append(missingParams, CpKeyLocalHost)
+	}
+	if cp.LocalPort == 0 {
+		missingParams = append(missingParams, CpKeyLocalPort)
+	}
+	if cp.RemoteHost == "" {
+		missingParams = append(missingParams, CpKeyRemoteHost)
+	}
+
+	if len(missingParams) > 0 {
+		return fmt.Errorf("missing required parameters: %s", strings.Join(missingParams, ", "))
 	}
 
 	if cp.HostKeyPath == "" && cp.HostKeyLevel > 0 {
 		fmt.Println("WARNING: host key level is set but host key path is not provided")
 
 		if cp.HostKeyLevel > 1 {
-			return fmt.Errorf("host key level is set but host key path is not provided")
+			return fmt.Errorf("host key level is set to %d but host key path is not provided", cp.HostKeyLevel)
 		}
 	}
 
@@ -138,15 +156,32 @@ func (cp *ClientParameters) GetHostKey(hostKeyPath string) (ssh.PublicKey, error
 }
 
 func (sp *ServerParameters) Validate() error {
-	if sp.BindAddress == "" ||
-		sp.BindPort == 0 ||
-		sp.PortRangeStart == 0 ||
-		sp.PortRangeEnd == 0 ||
-		sp.Username == "" ||
-		sp.Password == "" ||
-		sp.PrivateKeyPath == "" {
-		return fmt.Errorf("missing required parameters: %s, %s, %s, %s, %s, %s, %s",
-			SpKeyBindAddress, SpKeyBindPort, SpKeyPortRangeStart, SpKeyPortRangeEnd, SpKeyUsername, SpKeyPassword, SpKeyPrivateKey)
+	var missingParams []string
+
+	if sp.BindAddress == "" {
+		missingParams = append(missingParams, SpKeyBindAddress)
+	}
+	if sp.BindPort == 0 {
+		missingParams = append(missingParams, SpKeyBindPort)
+	}
+	if sp.PortRangeStart == 0 {
+		missingParams = append(missingParams, SpKeyPortRangeStart)
+	}
+	if sp.PortRangeEnd == 0 {
+		missingParams = append(missingParams, SpKeyPortRangeEnd)
+	}
+	if sp.Username == "" {
+		missingParams = append(missingParams, SpKeyUsername)
+	}
+	if sp.Password == "" {
+		missingParams = append(missingParams, SpKeyPassword)
+	}
+	if sp.PrivateKeyPath == "" {
+		missingParams = append(missingParams, SpKeyPrivateKey)
+	}
+
+	if len(missingParams) > 0 {
+		return fmt.Errorf("missing required parameters: %s", strings.Join(missingParams, ", "))
 	}
 
 	return nil

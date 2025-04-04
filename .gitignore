@@ -1,6 +1,7 @@
 .idea
 
-config.json
-pbp-tunnel
-pbp-tunnel.exe
-private_key.pem
+/config.json
+/config-server.json
+/pbp-tunnel
+/pbp-tunnel.exe
+/private_key.pem

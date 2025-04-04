@@ -46,19 +46,9 @@ func GetClientConfig(cp ClientParameters) (*ssh.ClientConfig, error) {
 }
 
 func GetServerConfig(sp ServerParameters) (*ssh.ServerConfig, error) {
-	privateKeyBytes, err := sp.GetPrivateKeyBytes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get private key bytes: %v", err)
-	}
-
 	authorizedKeysBytes, err := sp.GetAuthorizedKeysBytes()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get authorized keys bytes: %v", err)
-	}
-
-	signer, err := ssh.ParsePrivateKey(privateKeyBytes)
-	if err != nil {
-		log.Fatalf("An error occurred while parsing private key: %v", err)
 	}
 
 	authorizedKeysMap := map[string]bool{}
@@ -76,7 +66,7 @@ func GetServerConfig(sp ServerParameters) (*ssh.ServerConfig, error) {
 			if conn.User() == sp.Username && string(password) == sp.Password {
 				return nil, nil
 			}
-			return nil, fmt.Errorf("Password authentication failed for user %q", conn.User())
+			return nil, fmt.Errorf("password authentication failed for user %q", conn.User())
 		},
 		PublicKeyCallback: func(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
 			if authorizedKeysMap[string(pubKey.Marshal())] {
@@ -101,7 +91,19 @@ func GetServerConfig(sp ServerParameters) (*ssh.ServerConfig, error) {
 		},
 	}
 
-	sshConfig.AddHostKey(signer)
+	if sp.PrivateKeyPath != "" {
+		privateKeyBytes, err := sp.GetPrivateKeyBytes()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get private key bytes: %v", err)
+		}
+
+		signer, err := ssh.ParsePrivateKey(privateKeyBytes)
+		if err != nil {
+			log.Fatalf("An error occurred while parsing private key: %v", err)
+		}
+
+		sshConfig.AddHostKey(signer)
+	}
 
 	return sshConfig, nil
 }
