@@ -91,15 +91,76 @@ func GetServerConfig(sp ServerParameters) (*ssh.ServerConfig, error) {
 		},
 	}
 
-	if sp.PrivateKeyPath != "" {
-		privateKeyBytes, err := sp.GetPrivateKeyBytes()
+	hasOneKey := false
+
+	if sp.PrivateRsaPath != "" {
+		privateKeyBytes, err := sp.GetPrivateRsaBytes()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get private key bytes: %v", err)
+			return nil, fmt.Errorf("failed to get private keys bytes: %v", err)
 		}
 
 		signer, err := ssh.ParsePrivateKey(privateKeyBytes)
 		if err != nil {
 			log.Fatalf("An error occurred while parsing private key: %v", err)
+		}
+
+		sshConfig.AddHostKey(signer)
+		hasOneKey = true
+	}
+
+	if sp.PrivateEcdsaPath != "" {
+		privateKeyBytes, err := sp.GetPrivateEcdsaBytes()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get private keys bytes: %v", err)
+		}
+
+		signer, err := ssh.ParsePrivateKey(privateKeyBytes)
+		if err != nil {
+			log.Fatalf("An error occurred while parsing private key: %v", err)
+		}
+
+		sshConfig.AddHostKey(signer)
+		hasOneKey = true
+	}
+
+	if sp.PrivateEd25519Path != "" {
+		privateKeyBytes, err := sp.GetPrivateEd25519Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get private keys bytes: %v", err)
+		}
+
+		signer, err := ssh.ParsePrivateKey(privateKeyBytes)
+		if err != nil {
+			log.Fatalf("An error occurred while parsing private key: %v", err)
+		}
+
+		sshConfig.AddHostKey(signer)
+		hasOneKey = true
+	}
+
+	if !hasOneKey {
+		fmt.Println("No private key path provided, generating a new one (RSA)")
+
+		var privateKeyBytes []byte
+
+		switch true {
+		case sp.PrivateRsaPath != "":
+			privateKeyBytes, err = GenerateAndSavePrivateKeyToFile(sp.PrivateRsaPath, "rsa")
+		case sp.PrivateEcdsaPath != "":
+			privateKeyBytes, err = GenerateAndSavePrivateKeyToFile(sp.PrivateEcdsaPath, "ecdsa")
+		case sp.PrivateEd25519Path != "":
+			privateKeyBytes, err = GenerateAndSavePrivateKeyToFile(sp.PrivateEd25519Path, "ed25519")
+		default:
+			return nil, fmt.Errorf("no private key path provided")
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate private key: %v", err)
+		}
+
+		signer, err := ssh.ParsePrivateKey(privateKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse generated private key: %v", err)
 		}
 
 		sshConfig.AddHostKey(signer)

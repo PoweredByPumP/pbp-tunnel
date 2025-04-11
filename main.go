@@ -1,12 +1,8 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
+	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 )
 
@@ -17,6 +13,9 @@ func main() {
 
 		if mode == "client" || mode == "server" {
 			os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		} else if mode == "-h" || mode == "--help" {
+			printHelp()
+			os.Exit(0)
 		} else {
 			mode = ""
 		}
@@ -25,14 +24,17 @@ func main() {
 	if mode == "" {
 		if mode = guessType(); mode == "" {
 			fmt.Println("No mode were specified or cannot guess mode from JSON config. Please specify the `type` attribute as 'client' or 'server' in program arguments or JSON config.")
+			printHelp()
 			os.Exit(1)
 		}
 	}
 
 	switch mode {
 	case "client":
+		flag.Usage = printClientHelp
 		Client(LoadClientConfig())
 	case "server":
+		flag.Usage = printServerHelp
 		server := Server(LoadServerConfig())
 
 		err := server.Start()
@@ -41,28 +43,10 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		fmt.Printf("Unknown mode '%s'. Use 'client' or 'server' instead", mode)
+		fmt.Printf("Unknown mode '%s'. Use 'client' or 'server' instead\n", mode)
+		printHelp()
 		os.Exit(1)
 	}
-}
-
-func generatePrivateKey(filePath string) ([]byte, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
-	if err != nil {
-		return nil, err
-	}
-
-	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
-	})
-
-	err = ioutil.WriteFile(filePath, privateKeyPEM, 0600)
-	if err != nil {
-		return nil, err
-	}
-
-	return privateKeyPEM, nil
 }
 
 func guessType() string {

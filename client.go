@@ -23,8 +23,6 @@ type ClientSession struct {
 	ActiveConnections sync.WaitGroup
 }
 
-// On supprime le session.Listener car on ne veut PAS écouter localement (reverse tunnel).
-
 func Client(cpOverride *ClientParameters) {
 	var cp ClientParameters
 
@@ -88,18 +86,14 @@ func Client(cpOverride *ClientParameters) {
 			Active:       true,
 		}
 
-		// Bloque tant que la session est active, ou qu’il y a une erreur
 		err = handleClientSession(session, cp)
 
-		// Si handleClientSession sort, c'est qu'il y a eu un souci ou que le SSH s'est coupé
 		log.Printf("[-] Session ended with error: %v", err)
 
-		// Attendre la fin des transferts restants
 		log.Printf("[*] Waiting for any remaining active connections to terminate")
 		session.ActiveConnections.Wait()
 		log.Printf("[+] All connections terminated")
 
-		// On ferme la connexion. (Souvent déjà fermée, mais au cas où.)
 		_ = connection.Close()
 
 		log.Printf("[*] Disconnected from server, retrying in %v...", retryDelay)
@@ -114,7 +108,6 @@ func handleClientSession(session *ClientSession, cp ClientParameters) error {
 
 	log.Printf("[*] Requesting port forwarding setup")
 
-	// 1) Ouvrir canal pour demander le port côté serveur
 	channel, reqs, err := conn.OpenChannel("direct-tcpip", nil)
 	if err != nil {
 		return fmt.Errorf("failed to open SSH channel: %v", err)
@@ -122,7 +115,6 @@ func handleClientSession(session *ClientSession, cp ClientParameters) error {
 	defer channel.Close()
 	go ssh.DiscardRequests(reqs)
 
-	// 2) Envoi d'un int32 = cp.RemotePort
 	reqBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(reqBuf, uint32(cp.RemotePort))
 
@@ -131,7 +123,6 @@ func handleClientSession(session *ClientSession, cp ClientParameters) error {
 		return fmt.Errorf("failed to send port request: %v", err)
 	}
 
-	// 3) Lecture de l'int32 renvoyé = assignedPort
 	respBuf := make([]byte, 4)
 	if _, err := io.ReadFull(channel, respBuf); err != nil {
 		return fmt.Errorf("failed to read assigned port: %v", err)
@@ -141,9 +132,7 @@ func handleClientSession(session *ClientSession, cp ClientParameters) error {
 
 	session.AssignedPort = assignedPort
 
-	// 4) Lancer la gestion du reverse tunnel
 	go func() {
-		// Pour chaque nouveau canal direct-tcpip que le serveur ouvre vers le client
 		for newChannel := range conn.HandleChannelOpen("direct-tcpip") {
 			if !session.Active {
 				log.Printf("[*] Session no longer active, rejecting new channel")
@@ -157,22 +146,18 @@ func handleClientSession(session *ClientSession, cp ClientParameters) error {
 			}
 			go ssh.DiscardRequests(requests)
 
-			// Incrémentation du compteur
 			session.Lock.Lock()
 			session.ConnectionCount++
 			connID := session.ConnectionCount
 			session.Lock.Unlock()
 
-			// Comptage des transferts actifs
 			session.ActiveConnections.Add(1)
 
-			// Gérer le forward
 			go handleForwardedConnection(session, channel, localAddress, connID)
 		}
 		log.Printf("[*] Channel handling loop exited")
 	}()
 
-	// 5) Bloquer tant que la connexion SSH n'est pas morte
 	err = conn.Wait()
 	session.Lock.Lock()
 	session.Active = false
@@ -194,7 +179,6 @@ func handleForwardedConnection(session *ClientSession, channel ssh.Channel, loca
 		return
 	}
 
-	// Se connecter au service local
 	localConn, err := net.DialTimeout("tcp", localAddress, 10*time.Second)
 	if err != nil {
 		log.Printf("[-] Connection #%d to local service failed for %s: %v", connID, localAddress, err)
@@ -205,7 +189,6 @@ func handleForwardedConnection(session *ClientSession, channel ssh.Channel, loca
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Serveur -> Local
 	go func() {
 		defer wg.Done()
 		bytes, err := io.Copy(localConn, channel)
@@ -218,7 +201,6 @@ func handleForwardedConnection(session *ClientSession, channel ssh.Channel, loca
 		}
 	}()
 
-	// Local -> Serveur
 	go func() {
 		defer wg.Done()
 		bytes, err := io.Copy(channel, localConn)

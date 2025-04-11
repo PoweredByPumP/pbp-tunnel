@@ -40,7 +40,9 @@ const (
 	SpKeyPortRangeEnd   string = "port-range-end"
 	SpKeyUsername       string = "username"
 	SpKeyPassword       string = "password"
-	SpKeyPrivateKey     string = "private-key"
+	SpKeyPrivateRsa     string = "private-rsa"
+	SpKeyPrivateEcdsa   string = "private-ecdsa"
+	SpKeyPrivateEd25519 string = "private-ed25519"
 	SpKeyAuthorizedKeys string = "authorized-keys"
 	SpKeyAllowedIPS     string = "allowed-ips"
 
@@ -50,7 +52,9 @@ const (
 	SpDefaultPortRangeEnd   int    = 65535
 	SpDefaultUsername       string = ""
 	SpDefaultPassword       string = ""
-	SpDefaultPrivateKey     string = ""
+	SpDefaultPrivateRsa     string = "id_rsa"
+	SpDefaultPrivateEcdsa   string = "id_ecdsa"
+	SpDefaultPrivateEd25519 string = "id_ed25519"
 	SpDefaultAuthorizedKeys string = ""
 )
 
@@ -75,24 +79,26 @@ type ClientParameters struct {
 }
 
 type ServerParameters struct {
-	BindAddress        string     `json:"bind,omitempty"`
-	BindPort           int        `json:"port,omitempty"`
-	PortRangeStart     int        `json:"port_range_start,omitempty"`
-	PortRangeEnd       int        `json:"port_range_end,omitempty"`
-	Username           string     `json:"username,omitempty"`
-	Password           string     `json:"password,omitempty"`
-	PrivateKeyPath     string     `json:"private_key,omitempty"`
-	AuthorizedKeysPath string     `json:"authorized_keys,omitempty"`
-	AllowedIPs         AllowedIPs `json:"allowed_ips,omitempty"`
+	BindAddress        string      `json:"bind,omitempty"`
+	BindPort           int         `json:"port,omitempty"`
+	PortRangeStart     int         `json:"port_range_start,omitempty"`
+	PortRangeEnd       int         `json:"port_range_end,omitempty"`
+	Username           string      `json:"username,omitempty"`
+	Password           string      `json:"password,omitempty"`
+	PrivateRsaPath     string      `json:"private_rsa,omitempty"`
+	PrivateEcdsaPath   string      `json:"private_ecdsa,omitempty"`
+	PrivateEd25519Path string      `json:"private_ed25519,omitempty"`
+	AuthorizedKeysPath string      `json:"authorized_keys,omitempty"`
+	AllowedIPs         StringArray `json:"allowed_ips,omitempty"`
 }
 
-type AllowedIPs []string
+type StringArray []string
 
-func (a *AllowedIPs) String() string {
+func (a *StringArray) String() string {
 	return fmt.Sprintf("%v", *a)
 }
 
-func (a *AllowedIPs) Set(value string) error {
+func (a *StringArray) Set(value string) error {
 	*a = append(*a, value)
 	return nil
 }
@@ -176,8 +182,8 @@ func (sp *ServerParameters) Validate() error {
 	if sp.Password == "" {
 		missingParams = append(missingParams, SpKeyPassword)
 	}
-	if sp.PrivateKeyPath == "" {
-		missingParams = append(missingParams, SpKeyPrivateKey)
+	if sp.PrivateRsaPath == "" && sp.PrivateEcdsaPath == "" && sp.PrivateEd25519Path == "" {
+		missingParams = append(missingParams, SpKeyPrivateRsa+" or "+SpKeyPrivateEcdsa+" or "+SpKeyPrivateEd25519)
 	}
 
 	if len(missingParams) > 0 {
@@ -187,20 +193,28 @@ func (sp *ServerParameters) Validate() error {
 	return nil
 }
 
-func (sp *ServerParameters) GetPrivateKeyBytes() ([]byte, error) {
-	var privateKey []byte
-	var err error
-
-	if _, err := os.Stat(sp.PrivateKeyPath); os.IsNotExist(err) {
-		privateKey, err = generatePrivateKey(sp.PrivateKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("error generating private key: %v", err)
-		}
+func (sp *ServerParameters) GetPrivateRsaBytes() ([]byte, error) {
+	privateKey, err := os.ReadFile(sp.PrivateRsaPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading private RSA key file: %v", err)
 	}
 
-	privateKey, err = os.ReadFile(sp.PrivateKeyPath)
+	return privateKey, nil
+}
+
+func (sp *ServerParameters) GetPrivateEcdsaBytes() ([]byte, error) {
+	privateKey, err := os.ReadFile(sp.PrivateEcdsaPath)
 	if err != nil {
-		return nil, fmt.Errorf("error reading private key file: %v", err)
+		return nil, fmt.Errorf("error reading private ECDSA key file: %v", err)
+	}
+
+	return privateKey, nil
+}
+
+func (sp *ServerParameters) GetPrivateEd25519Bytes() ([]byte, error) {
+	privateKey, err := os.ReadFile(sp.PrivateEd25519Path)
+	if err != nil {
+		return nil, fmt.Errorf("error reading private Ed25519 key file: %v", err)
 	}
 
 	return privateKey, nil
