@@ -196,7 +196,13 @@ func (sp *ServerParameters) Validate() error {
 func (sp *ServerParameters) GetPrivateRsaBytes() ([]byte, error) {
 	privateKey, err := os.ReadFile(sp.PrivateRsaPath)
 	if err != nil {
-		return nil, fmt.Errorf("error reading private RSA key file: %v", err)
+		if os.IsNotExist(err) {
+			fmt.Printf("Private RSA key file not found at %s, generating a new one...\n", sp.PrivateRsaPath)
+		} else {
+			return nil, fmt.Errorf("error reading private RSA key file: %v", err)
+		}
+
+		privateKey, err = GenerateAndSavePrivateKeyToFile(sp.PrivateRsaPath, "rsa")
 	}
 
 	return privateKey, nil
