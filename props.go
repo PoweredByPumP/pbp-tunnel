@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -45,26 +44,20 @@ func LoadConfig() *AppConfig {
 		envConfig = LoadEnvConfig()
 	}
 
-	filePath := GetEnvValue("config", "")
-	if filePath == "" {
+	configFilePath := GetEnvValue("config", "./config.yml")
+	if configFilePath == "" {
 		return envConfig
 	}
 
-	configFile, err := os.Open(filePath)
+	configData, err := os.ReadFile(configFilePath)
 	if err != nil {
-		return nil
-	}
-
-	defer configFile.Close()
-
-	configData, err := ioutil.ReadAll(configFile)
-	if err != nil {
-		return nil
+		return envConfig
 	}
 
 	var config AppConfig
 	err = json.Unmarshal(configData, &config)
 	if err != nil {
+		fmt.Printf("Error parsing config file: %v\n", err)
 		return nil
 	}
 
@@ -132,7 +125,9 @@ func LoadEnvConfig() *AppConfig {
 
 	config.Server.Username = GetEnvValue("username", SpDefaultUsername)
 	config.Server.Password = GetEnvValue("password", SpDefaultPassword)
-	config.Server.PrivateKeyPath = GetEnvValue("private_key_path", SpDefaultPrivateKey)
+	config.Server.PrivateRsaPath = GetEnvValue("private_rsa_path", SpDefaultPrivateRsa)
+	config.Server.PrivateEcdsaPath = GetEnvValue("private_ecdsa_path", SpDefaultPrivateEcdsa)
+	config.Server.PrivateEd25519Path = GetEnvValue("private_ed25519_path", SpDefaultPrivateEd25519)
 	config.Server.AuthorizedKeysPath = GetEnvValue("authorized_keys_path", SpDefaultAuthorizedKeys)
 	config.Server.AllowedIPs = strings.Split(strings.TrimSpace(GetEnvValue("allowed_ips", "")), ",")
 
