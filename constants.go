@@ -53,8 +53,8 @@ const (
 	SpDefaultUsername       string = ""
 	SpDefaultPassword       string = ""
 	SpDefaultPrivateRsa     string = "id_rsa"
-	SpDefaultPrivateEcdsa   string = "id_ecdsa"
-	SpDefaultPrivateEd25519 string = "id_ed25519"
+	SpDefaultPrivateEcdsa   string = ""
+	SpDefaultPrivateEd25519 string = ""
 	SpDefaultAuthorizedKeys string = ""
 )
 
