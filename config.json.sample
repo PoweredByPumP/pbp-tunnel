@@ -20,7 +20,7 @@
     "port_range_end": 65535,
     "username": "exploitpbp",
     "password": "SuperSecretPassword",
-    "private_key": "/path/to/private/key",
+    "private_rsa": "/path/to/private/key",
     "authorized_keys": "/path/to/the/authorized_keys",
     "allowed_ips": []
   }

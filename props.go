@@ -44,7 +44,7 @@ func LoadConfig() *AppConfig {
 		envConfig = LoadEnvConfig()
 	}
 
-	configFilePath := GetEnvValue("config", "./config.yml")
+	configFilePath := GetEnvValue("config", "./config.json")
 	if configFilePath == "" {
 		return envConfig
 	}

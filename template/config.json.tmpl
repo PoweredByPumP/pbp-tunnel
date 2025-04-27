@@ -18,7 +18,7 @@
     "port_range_end": {{ .Server.PortRangeEnd }},
     "username": "{{ .Server.Username }}",
     "password": "{{ .Server.Password }}",
-    "private_key": "{{ .Server.PrivateRsaPath }}",
+    "private_rsa": "{{ .Server.PrivateRsaPath }}",
     "allowed_ips": [{{ range $i, $ip := .Server.AllowedIPs }}{{ if $i }}, {{ end }}"{{ $ip }}"{{ end }}]
   }{{ end }}
 }
