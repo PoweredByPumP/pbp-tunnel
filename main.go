@@ -11,7 +11,7 @@ func main() {
 	if len(os.Args) >= 2 {
 		mode = os.Args[1]
 
-		if mode == "client" || mode == "server" {
+		if mode == "client" || mode == "server" || mode == "generate" {
 			os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
 		} else if mode == "-h" || mode == "--help" {
 			printHelp()
@@ -42,6 +42,8 @@ func main() {
 			fmt.Println(err)
 			os.Exit(1)
 		}
+	case "generate":
+		GenerateConfigTemplate()
 	default:
 		fmt.Printf("Unknown mode '%s'. Use 'client' or 'server' instead\n", mode)
 		printHelp()

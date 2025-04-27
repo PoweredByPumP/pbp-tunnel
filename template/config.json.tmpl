@@ -1,0 +1,24 @@
+{
+  "type": "{{ .Type }}"{{ if .Client }},
+  "client": {
+    "host_key_level": {{ .Client.HostKeyLevel }},
+    "endpoint": "{{ .Client.Endpoint }}",
+    "port": {{ .Client.EndpointPort }},
+    "username": "{{ .Client.Username }}",
+    "password": "{{ .Client.Password }}",
+    "local_host": "{{ .Client.LocalHost }}",
+    "local_port": {{ .Client.LocalPort }},
+    "remote_host": "{{ .Client.RemoteHost }}",
+    "remote_port": {{ .Client.RemotePort }}
+  }{{ end }}{{ if .Server }},
+  "server": {
+    "bind": "{{ .Server.BindAddress }}",
+    "port": {{ .Server.BindPort }},
+    "port_range_start": {{ .Server.PortRangeStart }},
+    "port_range_end": {{ .Server.PortRangeEnd }},
+    "username": "{{ .Server.Username }}",
+    "password": "{{ .Server.Password }}",
+    "private_key": "{{ .Server.PrivateRsaPath }}",
+    "allowed_ips": [{{ range $i, $ip := .Server.AllowedIPs }}{{ if $i }}, {{ end }}"{{ $ip }}"{{ end }}]
+  }{{ end }}
+}
