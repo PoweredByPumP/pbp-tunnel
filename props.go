@@ -44,19 +44,20 @@ func LoadConfig() *AppConfig {
 		envConfig = LoadEnvConfig()
 	}
 
-	configFilePath := GetEnvValue("config", "")
+	configFilePath := GetEnvValue("config", "./config.yml")
 	if configFilePath == "" {
 		return envConfig
 	}
 
 	configData, err := os.ReadFile(configFilePath)
 	if err != nil {
-		return nil
+		return envConfig
 	}
 
 	var config AppConfig
 	err = json.Unmarshal(configData, &config)
 	if err != nil {
+		fmt.Printf("Error parsing config file: %v\n", err)
 		return nil
 	}
 
