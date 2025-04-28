@@ -83,7 +83,7 @@ func Client(cpOverride *ClientParameters) {
 		}
 
 		if err := handleClientSession(session, cp); err != nil {
-			log.Fatalf("[-] Something happend when handling client session: %v", err)
+			log.Fatalf("[-] Something happened when handling client session: %v", err)
 		}
 
 		log.Printf("[*] Waiting for active connections to finish...")
