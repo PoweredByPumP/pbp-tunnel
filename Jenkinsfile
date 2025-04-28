@@ -5,4 +5,8 @@ getIDGoPipelineV2(projectName: "pbp-tunnel",
 				  goVersion: "1.23.0",
 				  slaveAgent: "slave-01",
 				  deploySlaveAgent: "slave-01",
-				  githubAdditionallyPush: true)
+				  githubAdditionallyPush: true,
+				  buildForLinux: true,
+				  buildForLinuxArm64: true,
+				  buildForWindows: true,
+				  buildForWindowsArm64: true)
