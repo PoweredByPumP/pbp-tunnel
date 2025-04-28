@@ -38,8 +38,10 @@ dynamically handles forwarded ports.
 
 ## Installation
 
+Find the URL of the latest release compatible [here](https://github.com/PoweredByPumP/pbp-tunnel/releases/latest) with your architecture and copy it.
+
 ```bash
-git clone https://your-repository-url.git
+wget https://github.com/PoweredByPumP/pbp-tunnel/releases/download/0.0.5/pbp-tunnel-0.0.5
 cd pbp-tunnel
 go build -o pbp-tunnel
 ```
@@ -66,7 +68,9 @@ With flags:
   --port-range-end 65535 \
   --username myuser \
   --password mypassword \
-  --private-rsa ./dev/private_key.pem \
+  --private-rsa ./dev/id_rsa \
+  --private-ecdsa ./dev/id_ecdsa \
+  --private-ed25519 ./dev/id_ed25519 \
   --allowed-ips 192.0.2.10,198.51.100.5
 ```
 
@@ -112,7 +116,9 @@ Place a `config.json` file alongside the binary, for example:
     "port_range_end": 65535,
     "username": "myuser",
     "password": "mypassword",
-    "private_rsa": "./dev/private_key.pem",
+    "private_rsa": "./dev/id_rsa",
+    "private_ecdsa": "./dev/id_ecdsa",
+    "private_ed25519": "./dev/id_ed25519",
     "allowed_ips": [
       "192.0.2.10",
       "198.51.100.5"
