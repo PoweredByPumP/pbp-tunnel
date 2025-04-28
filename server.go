@@ -298,15 +298,26 @@ func (s *ForwardServer) assignPort(requested int) int {
 	s.forwardsLock.Lock()
 	defer s.forwardsLock.Unlock()
 
+	// never assign the SSH‐control port
+	if requested == s.port {
+		log.Printf("[-] Requested port %d conflicts with server control port", requested)
+		return 0
+	}
+
 	if requested != 0 {
 		if requested >= s.portRangeStart && requested <= s.portRangeEnd {
 			if _, used := s.forwards[requested]; !used {
 				return requested
 			}
+			log.Printf("[-] Requested port %d already in use", requested)
 		}
 		return 0
 	}
+
 	for p := s.portRangeStart; p <= s.portRangeEnd; p++ {
+		if p == s.port {
+			continue
+		}
 		if _, used := s.forwards[p]; !used {
 			return p
 		}
