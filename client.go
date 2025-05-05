@@ -37,6 +37,7 @@ func Client(cpOverride *ClientParameters) {
 		flag.StringVar(&cp.RemoteHost, CpKeyRemoteHost, CpDefaultRemoteHost, "Remote host to expose (unused)")
 		flag.IntVar(&cp.RemotePort, CpKeyRemotePort, CpDefaultRemotePort, "Remote port to request (0 = random)")
 		flag.IntVar(&cp.HostKeyLevel, CpKeyHostKeyLevel, CpDefaultHostKeyLevel, "Host key level (0=no check,1=warn,2=strict)")
+		flag.Var(&cp.AllowedIPs, CpKeyAllowedIPs, "Comma-separated list of allowed IPs")
 		flag.Parse()
 	} else {
 		cp = *cpOverride
@@ -122,7 +123,43 @@ func handleClientSession(session *ClientSession, cp ClientParameters) error {
 		return fmt.Errorf("error: server handshake error (code %d)", code)
 	}
 
-	// 2) Port request
+	log.Printf("[+] Handshake successful, server code: %d", code)
+
+	// 2.1) Send per-forward whitelist
+	ips := cp.AllowedIPs
+
+	var ipBuf [4]byte
+	binary.BigEndian.PutUint32(ipBuf[:], uint32(len(ips)))
+	if _, err := channel.Write(ipBuf[:]); err != nil {
+		return fmt.Errorf("failed to send IP whitelist length: %v", err)
+	}
+
+	for _, ip := range ips {
+		data := []byte(ip)
+		var lIpBuf [4]byte
+
+		binary.BigEndian.PutUint32(lIpBuf[:], uint32(len(data)))
+		if _, err := channel.Write(lIpBuf[:]); err != nil {
+			return fmt.Errorf("failed to send IP length: %v", err)
+		}
+		if _, err := channel.Write(data); err != nil {
+			return fmt.Errorf("failed to send IP address: %v", err)
+		}
+
+		log.Printf("[+] Sent allowed IP: %s", ip)
+	}
+
+	// 2.2) Read whitelist confirmation
+	var confBuf [4]byte
+	if _, err := io.ReadFull(channel, confBuf[:]); err != nil {
+		return fmt.Errorf("failed to read whitelist confirmation: %v", err)
+	}
+	confCode := binary.BigEndian.Uint32(confBuf[:])
+	if confCode != ErrSuccess {
+		return fmt.Errorf("error: server failed to accept IP whitelist (code %d)", confCode)
+	}
+
+	// 3) Port request
 	var reqBuf [4]byte
 	binary.BigEndian.PutUint32(reqBuf[:], uint32(cp.RemotePort))
 	log.Printf("[*] Sending port request: %d", cp.RemotePort)
@@ -130,7 +167,7 @@ func handleClientSession(session *ClientSession, cp ClientParameters) error {
 		return fmt.Errorf("failed to send port request: %v", err)
 	}
 
-	// 3) Read assignment or error
+	// 4) Read assignment or error
 	var resp [4]byte
 	if _, err := io.ReadFull(channel, resp[:]); err != nil {
 		return fmt.Errorf("failed to read port response: %v", err)
@@ -150,11 +187,11 @@ func handleClientSession(session *ClientSession, cp ClientParameters) error {
 		}
 	}
 
-	// 4) Success
+	// 5) Success
 	session.AssignedPort = int(val)
 	log.Printf("[+] Remote port assigned: %d (for local %s)", session.AssignedPort, session.LocalAddress)
 
-	// 5) Forward loop
+	// 6) Forward loop
 	go func() {
 		for newCh := range session.Connection.HandleChannelOpen("direct-tcpip") {
 			if !session.Active {
