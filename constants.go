@@ -21,6 +21,7 @@ const (
 	CpKeyRemoteHost     string = "remote-host"
 	CpKeyRemotePort     string = "remote-port"
 	CpKeyHostKeyLevel   string = "host-key-level"
+	CpKeyAllowedIPs     string = "allowed-ips"
 
 	CpDefaultEndpoint       string = ""
 	CpDefaultEndpointPort          = DefaultEndpointPort
@@ -65,17 +66,18 @@ type AppConfig struct {
 }
 
 type ClientParameters struct {
-	Endpoint       string `json:"endpoint,omitempty"`
-	EndpointPort   int    `json:"port,omitempty"`
-	Username       string `json:"username,omitempty"`
-	Password       string `json:"password,omitempty"`
-	PrivateKeyPath string `json:"identity,omitempty"`
-	HostKeyPath    string `json:"host_key,omitempty"`
-	LocalHost      string `json:"local_host,omitempty"`
-	LocalPort      int    `json:"local_port,omitempty"`
-	RemoteHost     string `json:"remote_host,omitempty"`
-	RemotePort     int    `json:"remote_port,omitempty"`
-	HostKeyLevel   int    `json:"host_key_level,omitempty"`
+	Endpoint       string      `json:"endpoint,omitempty"`
+	EndpointPort   int         `json:"port,omitempty"`
+	Username       string      `json:"username,omitempty"`
+	Password       string      `json:"password,omitempty"`
+	PrivateKeyPath string      `json:"identity,omitempty"`
+	HostKeyPath    string      `json:"host_key,omitempty"`
+	LocalHost      string      `json:"local_host,omitempty"`
+	LocalPort      int         `json:"local_port,omitempty"`
+	RemoteHost     string      `json:"remote_host,omitempty"`
+	RemotePort     int         `json:"remote_port,omitempty"`
+	HostKeyLevel   int         `json:"host_key_level,omitempty"`
+	AllowedIPs     StringArray `json:"allowed_ips,omitempty"`
 }
 
 type ServerParameters struct {

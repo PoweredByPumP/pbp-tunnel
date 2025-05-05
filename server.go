@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,9 +26,10 @@ const (
 )
 
 type PortForward struct {
-	Port   int
-	Conn   *ssh.ServerConn
-	Closed chan struct{}
+	Port       int
+	AllowedIPs []string
+	Conn       *ssh.ServerConn
+	Closed     chan struct{}
 }
 
 type ForwardServer struct {
@@ -108,7 +110,7 @@ func (s *ForwardServer) Start() error {
 func (s *ForwardServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	clientAddr := conn.RemoteAddr().String()
-	log.Printf("[*] Starting SSH handshake with %s", clientAddr)
+	log.Printf("[*] Exchanging handshake with %s", clientAddr)
 
 	sshConn, channels, reqs, err := ssh.NewServerConn(conn, s.config)
 	if err != nil {
@@ -148,7 +150,53 @@ func (s *ForwardServer) handleConnection(conn net.Conn) {
 		binary.BigEndian.PutUint32(hb[:], ErrSuccess)
 		channel.Write(hb[:])
 
-		// 2) Read port request
+		// 2.1) Read per-forward whitelist
+		var ipBuf [4]byte
+		if _, err := io.ReadFull(channel, ipBuf[:]); err != nil {
+			log.Printf("[-] Failed to read IP whitelist length: %v", err)
+			channel.Close()
+			continue
+		}
+
+		ipCount := int(binary.BigEndian.Uint32(ipBuf[:]))
+		log.Printf("[*] Client %s sent IP whitelist length: %d", sshConn.RemoteAddr(), ipCount)
+
+		var allowedIPs []string
+		if ipCount >= 1 {
+			allowedIPs = make([]string, ipCount)
+
+			for i := 0; i < ipCount; i++ {
+				var lIpBuf [4]byte
+				if _, err := io.ReadFull(channel, lIpBuf[:]); err != nil {
+					log.Printf("[-] Failed to read IP length: %v", err)
+					channel.Close()
+					continue
+				}
+
+				ipLen := int(binary.BigEndian.Uint32(lIpBuf[:]))
+				ipData := make([]byte, ipLen)
+				if _, err := io.ReadFull(channel, ipData); err != nil {
+					log.Printf("[-] Failed to read IP address: %v", err)
+					channel.Close()
+					continue
+				}
+
+				allowedIPs[i] = string(ipData)
+				log.Printf("[+] Client %s sent allowed IP: %s", sshConn.RemoteAddr(), allowedIPs[i])
+			}
+		}
+
+		// 2.2) Send whitelist confirmation
+		var confBuf [4]byte
+		binary.BigEndian.PutUint32(confBuf[:], ErrSuccess)
+		if _, err := channel.Write(confBuf[:]); err != nil {
+			log.Printf("[-] Failed to send whitelist confirmation: %v", err)
+			channel.Close()
+			continue
+		}
+		log.Printf("[+] Sent whitelist confirmation to client %s", sshConn.RemoteAddr())
+
+		// 3) Read port request
 		var reqBuf [4]byte
 		if _, err := io.ReadFull(channel, reqBuf[:]); err != nil {
 			channel.Close()
@@ -157,7 +205,7 @@ func (s *ForwardServer) handleConnection(conn net.Conn) {
 		requested := int(binary.BigEndian.Uint32(reqBuf[:]))
 		log.Printf("[*] Client %s requested port: %d", sshConn.RemoteAddr(), requested)
 
-		// 3) Range check
+		// 4) Range check
 		if requested != 0 && (requested < s.portRangeStart || requested > s.portRangeEnd) {
 			log.Printf("[-] Requested port %d is outside allowed range", requested)
 			var ob [4]byte
@@ -167,7 +215,7 @@ func (s *ForwardServer) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		// 4) Assign port
+		// 5) Assign port
 		port := s.assignPort(requested)
 		if port == 0 {
 			log.Printf("[-] No available ports in range %d-%d", s.portRangeStart, s.portRangeEnd)
@@ -178,7 +226,7 @@ func (s *ForwardServer) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		// 5) Try binding
+		// 6) Try binding
 		bindAddr := fmt.Sprintf("0.0.0.0:%d", port)
 		ln, err := net.Listen("tcp", bindAddr)
 		if err != nil {
@@ -191,16 +239,16 @@ func (s *ForwardServer) handleConnection(conn net.Conn) {
 		}
 		log.Printf("[+] Assigned port %d", port)
 
-		// 6) Inform client
+		// 7) Inform client
 		var pb [4]byte
 		binary.BigEndian.PutUint32(pb[:], uint32(port))
 		channel.Write(pb[:])
 		channel.Close()
 
-		// 7) Forward loop
+		// 8) Forward loop
 		done := make(chan struct{})
 		s.forwardsLock.Lock()
-		s.forwards[port] = &PortForward{Port: port, Conn: sshConn, Closed: done}
+		s.forwards[port] = &PortForward{Port: port, AllowedIPs: allowedIPs, Conn: sshConn, Closed: done}
 		s.forwardsLock.Unlock()
 
 		go s.serveForward(port, sshConn, ln, done)
@@ -246,6 +294,32 @@ func (s *ForwardServer) serveForward(port int, sshConn *ssh.ServerConn, listener
 				}
 				return
 			}
+		}
+
+		portIpWhitelist := s.forwards[port].AllowedIPs
+
+		// IP check for each incoming connection
+		remoteAddrStr, _, _ := net.SplitHostPort(c.RemoteAddr().String())
+		remoteIP := net.ParseIP(remoteAddrStr)
+
+		allowed := len(portIpWhitelist) == 0
+		if !allowed {
+			for _, entry := range portIpWhitelist {
+				if strings.Contains(entry, "/") {
+					if _, cidr, err := net.ParseCIDR(entry); err == nil && cidr.Contains(remoteIP) {
+						allowed = true
+						break
+					}
+				} else if remoteAddrStr == entry {
+					allowed = true
+					break
+				}
+			}
+		}
+		if !allowed {
+			log.Printf("[-] Connection from %s rejected: not in allowed list or CIDR ranges", remoteAddrStr)
+			c.Close()
+			continue
 		}
 
 		connID++
