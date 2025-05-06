@@ -1,4 +1,4 @@
-module pbp-tunnel
+module github.com/poweredbypump/pbp-tunnel
 
 go 1.23.0
 

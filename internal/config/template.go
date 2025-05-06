@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"bufio"
@@ -10,10 +10,11 @@ import (
 	"strings"
 )
 
-//go:embed template/config.json.tmpl
+//go:embed templates/config.json.tmpl
 var configJsonTemplate string
 
-func GenerateConfigTemplate() {
+// GenerateConfigTemplate interactively prompts the user and writes a config file
+func GenerateConfigTemplate() error {
 	mode := ask("GenerateConfigTemplate config for (client/server)", "client")
 
 	var config AppConfig
@@ -40,32 +41,35 @@ func GenerateConfigTemplate() {
 			Username:       ask("Username", "user"),
 			Password:       ask("Password", "changeme"),
 			PrivateRsaPath: ask("Private key path", "id_rsa"),
-			AllowedIPs:     strings.Split(ask("Allowed IPs (comma separated)", ""), ","),
+			AllowedIPs:     nil,
 		}
-		for i := range config.Server.AllowedIPs {
-			config.Server.AllowedIPs[i] = strings.TrimSpace(config.Server.AllowedIPs[i])
+		ips := ask("Allowed IPs (comma separated)", "")
+		if ips != "" {
+			entries := strings.Split(ips, ",")
+			for i := range entries {
+				entries[i] = strings.TrimSpace(entries[i])
+			}
+			config.Server.AllowedIPs = entries
 		}
 	}
 
 	outFile := ask("Output file path", "config.json")
 	f, err := os.Create(outFile)
 	if err != nil {
-		fmt.Printf("Error creating file: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("Error creating file: %w", err)
 	}
 	defer f.Close()
 
 	tmpl := template.Must(template.New("config").Parse(configJsonTemplate))
-	err = tmpl.Execute(f, config)
-	if err != nil {
-		fmt.Printf("Error generating config: %v\n", err)
-		os.Exit(1)
+	if err := tmpl.Execute(f, config); err != nil {
+		return fmt.Errorf("Error generating config: %w", err)
 	}
 
 	fmt.Printf("Configuration written to %s\n", outFile)
+	return nil
 }
 
-func ask(prompt string, defaultVal string) string {
+func ask(prompt, defaultVal string) string {
 	r := bufio.NewReader(os.Stdin)
 	fmt.Printf("%s [%s]: ", prompt, defaultVal)
 	input, _ := r.ReadString('\n')
