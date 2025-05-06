@@ -1,5 +1,6 @@
 .idea
 
-/pbp-tunnel
-/pbp-tunnel.exe
-/dev
+/out
+/pbp-tunnel*
+/pbp-tunnel*.exe
+/.dev
