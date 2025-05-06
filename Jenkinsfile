@@ -1,7 +1,7 @@
 @Library('pbpipelines') _
 
 getIDGoPipelineV2(projectName: "pbp-tunnel",
-				  projectVersion: "0.0.7-SNAPSHOT",
+				  projectVersion: "0.0.7",
 				  goVersion: "1.23.0",
 				  goTarget: "./cmd/pbp-tunnel",
 				  goTest: true,
