@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="client" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="pbp-tunnel" />
+    <working_directory value="$PROJECT_DIR$" />
+    <envs>
+      <env name="PBP_TUNNEL_CONFIG" value="./.dev/config-client.json" />
+    </envs>
+    <kind value="PACKAGE" />
+    <package value="github.com/poweredbypump/pbp-tunnel/cmd/pbp-tunnel" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>
