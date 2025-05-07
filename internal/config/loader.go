@@ -138,10 +138,21 @@ func LoadConfig() *AppConfig {
 		return envConfig
 	}
 
-	configFilepath := GetEnvValue("config", "config.json")
+	configFilepath := GetEnvValue("config", "")
+
+	hasDefaultValue := false
+	if configFilepath == "" {
+		hasDefaultValue = true
+		configFilepath = "config.json"
+	}
 
 	configBytes, err := os.ReadFile(configFilepath)
 	if err != nil {
+		if !hasDefaultValue {
+			_, _ = fmt.Fprintf(os.Stderr, "Error reading config file: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "Falling back to environment variables.\n")
+		}
+
 		return envConfig
 	}
 
