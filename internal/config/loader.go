@@ -44,7 +44,7 @@ func LoadEnvConfig() *AppConfig {
 		}
 		configuration.Client.Endpoint = v
 	}
-	if v := GetEnvValue(CpKeyEndpointPort, CpKeyEndpointPort); v != "" {
+	if v := GetEnvValue(CpKeyEndpointPort, strconv.Itoa(CpDefaultEndpointPort)); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			configuration.Client.EndpointPort = p
 		}
