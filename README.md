@@ -1,6 +1,8 @@
 # pbp-tunnel
 
-**pbp-tunnel** is a reverse SSH port-forwarding tool that lets you expose a local service on a remote host through SSH, without opening inbound ports on the client side. It supports password and key-based authentication, dynamic port assignment, IP whitelisting, and automatic cleanup on client disconnection.
+**pbp-tunnel** is a reverse SSH port-forwarding tool that lets you expose a local service on a remote host through SSH,
+without opening inbound ports on the client side. It supports password and key-based authentication, dynamic port
+assignment, IP whitelisting, and automatic cleanup on client disconnection.
 
 ---
 
@@ -15,18 +17,17 @@
 * 🛠️ **Configurable**: JSON config file (with `generate` mode), flags or environment variables
 * 🎨 **User-friendly CLI**: Clear help, colored output
 
-
 ---
 
 ## Table of Contents
 
 1. [Installation](#installation)
 2. [Quickstart](#quickstart)
-   - [Server](#server)
-   - [Client](#client)
+    - [Server](#server)
+    - [Client](#client)
 3. [Configuration](#configuration)
-   - [Config File](#json-config-file)
-   - [Environment Variables](#environment-variables)
+    - [Config File](#json-config-file)
+    - [Environment Variables](#environment-variables)
 4. [Help & Usage](#help--usage)
 5. [Testing](#testing)
 6. [Project Structure](#project-structure)
@@ -36,7 +37,8 @@
 
 ## Installation
 
-Grab the latest binary for your platform from the [Releases](https://github.com/PoweredByPumP/pbp-tunnel/releases) page, or build from source:
+Grab the latest binary for your platform from the [Releases](https://github.com/PoweredByPumP/pbp-tunnel/releases) page,
+or build from source:
 
 ```bash
 git clone https://github.com/PoweredByPumP/pbp-tunnel.git
@@ -56,6 +58,7 @@ We are also available on [Scoop](https://github.com/PoweredByPumP/scoop) if you'
 scoop bucket add pbp-scoop https://github.com/PoweredByPumP/scoop
 scoop install pbp-scoop/pbp-tunnel
 ```
+
 ---
 
 ## Quickstart
@@ -78,7 +81,7 @@ With flags:
   --port-range-end 65535 \
   --username myuser \
   --password mypass \
-  --private-rsa ./id_rsa \
+  --private-rsa-path ./id_rsa \
   --allowed-ips 198.51.100.5,203.0.113.10
 ```
 
@@ -125,7 +128,7 @@ Create a `config.json` alongside the binary:
     "port_range_end": 65535,
     "username": "myuser",
     "password": "mypass",
-    "private_rsa": "./id_rsa",
+    "private_rsa_path": "./id_rsa",
     "allowed_ips": [
       "198.51.100.5",
       "203.0.113.10"
@@ -162,23 +165,25 @@ Generate an interactive template with:
 
 All settings can be overridden via environment variables prefixed `PBP_TUNNEL_`. For example:
 
-| Variable                      | Description                                |
-| ----------------------------- | ------------------------------------------ |
-| `PBP_TUNNEL_TYPE`             | "client" or "server"                       |
-| `PBP_TUNNEL_ENDPOINT`         | Server address (client mode)               |
-| `PBP_TUNNEL_PORT`             | Server port                                |
-| `PBP_TUNNEL_USERNAME`         | SSH username                               |
-| `PBP_TUNNEL_PASSWORD`         | SSH password                               |
-| `PBP_TUNNEL_LOCAL_HOST`       | Local service address (client mode)        |
-| `PBP_TUNNEL_LOCAL_PORT`       | Local service port (client mode)           |
-| `PBP_TUNNEL_REMOTE_HOST`      | Remote host to expose (client mode)        |
-| `PBP_TUNNEL_REMOTE_PORT`      | Remote port to request (0 for dynamic)     |
-| `PBP_TUNNEL_BIND`             | Server bind address                        |
-| `PBP_TUNNEL_BIND_PORT`        | Server listen port                         |
-| `PBP_TUNNEL_PORT_RANGE_START` | Start of server port range                 |
-| `PBP_TUNNEL_PORT_RANGE_END`   | End of server port range                   |
-| `PBP_TUNNEL_PRIVATE_RSA_PATH` | Server private RSA key path                |
-| `PBP_TUNNEL_ALLOWED_IPS`      | Comma-separated list of allowed client IPs |
+| Variable                          | Description                                |
+|-----------------------------------|--------------------------------------------|
+| `PBP_TUNNEL_TYPE`                 | "client" or "server"                       |
+| `PBP_TUNNEL_ENDPOINT`             | Server address (client mode)               |
+| `PBP_TUNNEL_PORT`                 | Server port                                |
+| `PBP_TUNNEL_USERNAME`             | SSH username                               |
+| `PBP_TUNNEL_PASSWORD`             | SSH password                               |
+| `PBP_TUNNEL_LOCAL_HOST`           | Local service address (client mode)        |
+| `PBP_TUNNEL_LOCAL_PORT`           | Local service port (client mode)           |
+| `PBP_TUNNEL_REMOTE_HOST`          | Remote host to expose (client mode)        |
+| `PBP_TUNNEL_REMOTE_PORT`          | Remote port to request (0 for dynamic)     |
+| `PBP_TUNNEL_BIND`                 | Server bind address                        |
+| `PBP_TUNNEL_BIND_PORT`            | Server listen port                         |
+| `PBP_TUNNEL_PORT_RANGE_START`     | Start of server port range                 |
+| `PBP_TUNNEL_PORT_RANGE_END`       | End of server port range                   |
+| `PBP_TUNNEL_PRIVATE_RSA_PATH`     | Server private RSA key path                |
+| `PBP_TUNNEL_PRIVATE_ECDSA_PATH`   | Server private ECDSA key path              |
+| `PBP_TUNNEL_PRIVATE_ED25519_PATH` | Server private ED25519 key path            |
+| `PBP_TUNNEL_ALLOWED_IPS`          | Comma-separated list of allowed client IPs |
 
 ---
 

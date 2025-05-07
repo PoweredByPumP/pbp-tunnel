@@ -1,0 +1,15 @@
+{
+  "type": "client",
+  "client": {
+    "host_key_level": 0,
+    "endpoint": "localhost",
+    "port": 52135,
+    "username": "exploitpbp",
+    "password": "SuperSecretPassword",
+    "local_host": "localhost",
+    "local_port": 55580,
+    "remote_host": "localhost",
+    "remote_port": 55582,
+    "allowed_ips": ["192.168.0.126"]
+  }
+}

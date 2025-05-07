@@ -3,6 +3,7 @@ package config
 import (
 	"golang.org/x/crypto/ssh"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -105,19 +106,19 @@ func TestClientParameters_Validate(t *testing.T) {
 			RemotePort: 9090,
 		}, true, "remote_host is required"},
 
-		{"invalid-remote-port-zero", &ClientParameters{
+		{"invalid-remote-port-minus-one", &ClientParameters{
 			Endpoint: "example.com", EndpointPort: 22,
 			Username: "user", Password: "pass",
 			LocalHost: "localhost", LocalPort: 8080,
-			RemoteHost: "remote-host", RemotePort: 0,
-		}, true, "remote_port must be between 1 and 65535"},
+			RemoteHost: "remote-host", RemotePort: -1,
+		}, true, "remote_port must be between 0 and 65535"},
 
 		{"invalid-remote-port-high", &ClientParameters{
 			Endpoint: "example.com", EndpointPort: 22,
 			Username: "user", Password: "pass",
 			LocalHost: "localhost", LocalPort: 8080,
 			RemoteHost: "remote-host", RemotePort: 70000,
-		}, true, "remote_port must be between 1 and 65535"},
+		}, true, "remote_port must be between 0 and 65535"},
 	}
 
 	for _, tc := range tests {
@@ -139,26 +140,29 @@ func TestClientParameters_Validate(t *testing.T) {
 }
 
 func TestServerParameters_Validate(t *testing.T) {
+	tempDir := makeTempDir(t)
+
 	tests := []struct {
 		name    string
 		sp      *ServerParameters
 		wantErr bool
 		errMsg  string
 	}{
-		{"valid-parameters", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, false, ""},
-		{"missing-bind-address", &ServerParameters{BindAddress: "", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "bind address is required"},
-		{"invalid-bindport", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 0, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "bind port must be between 1 and 65535"},
-		{"invalid-range-start", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: -1, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "port_range_start must be between 0 and 65535"},
-		{"range-start-too-high", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 70000, PortRangeEnd: 80000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "port_range_start must be between 0 and 65535"},
-		{"invalid-range-end", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "port_range_end must be between port_range_start and 65535"},
-		{"range-end-too-high", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 70000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "port_range_end must be between port_range_start and 65535"},
-		{"missing-auth", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "", Password: "", PrivateRsaPath: "/path/key"}, true, "username or password must be set for SSH server"},
+		{"valid-parameters", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, false, ""},
+		{"missing-bind-address", &ServerParameters{BindAddress: "", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "bind address is required"},
+		{"invalid-bindport", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 0, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "bind port must be between 1 and 65535"},
+		{"invalid-range-start", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: -1, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "port_range_start must be between 0 and 65535"},
+		{"range-start-too-high", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 70000, PortRangeEnd: 80000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "port_range_start must be between 0 and 65535"},
+		{"invalid-range-end", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "port_range_end must be between port_range_start and 65535"},
+		{"range-end-too-high", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 70000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "port_range_end must be between port_range_start and 65535"},
+		{"missing-username", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "username must be set for SSH server"},
+		{"missing-password-and-authorized-keys", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "password or authorized_keys must be set for SSH server"},
 		{"missing-key", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: ""}, true, "at least one host key path must be provided"},
-		{"only-username", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "", PrivateRsaPath: "/path/key"}, false, ""},
-		{"only-password", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "", Password: "pass", PrivateRsaPath: "/path/key"}, false, ""},
-		{"only-ecdsa-key", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "", PrivateEcdsaPath: "/path/ecdsa"}, false, ""},
-		{"only-ed25519-key", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "", PrivateEd25519Path: "/path/ed25519"}, false, ""},
-		{"zero-port-range", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 3000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, false, ""},
+		{"only-username", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "password or authorized_keys must be set for SSH server"},
+		{"only-password", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "username must be set for SSH server"},
+		{"only-ecdsa-key", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "", PrivateEcdsaPath: filepath.Join(tempDir, "/id_ecdsa")}, false, ""},
+		{"only-ed25519-key", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "", PrivateEd25519Path: filepath.Join(tempDir, "/id_ed25519")}, false, ""},
+		{"zero-port-range", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 3000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, false, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -115,7 +116,7 @@ func TestClientParametersValidate(t *testing.T) {
 			LocalPort:    8080,
 			RemoteHost:   "remote",
 			RemotePort:   70000,
-		}, true, "remote_port must be between 1 and 65535"},
+		}, true, "remote_port must be between 0 and 65535"},
 	}
 	for _, tc := range tests {
 		err := tc.cp.Validate()
@@ -134,18 +135,21 @@ func TestClientParametersValidate(t *testing.T) {
 }
 
 func TestServerParametersValidate(t *testing.T) {
+	tempDir := makeTempDir(t)
+
 	tests := []struct {
 		name    string
 		sp      *ServerParameters
 		wantErr bool
 		errMsg  string
 	}{
-		{"valid", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, false, ""},
-		{"missing-bindaddress", &ServerParameters{BindAddress: "", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "bind address is required"},
-		{"invalid-bindport", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 0, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "bind port must be between 1 and 65535"},
-		{"invalid-range-start", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: -1, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "port_range_start must be between 0 and 65535"},
-		{"invalid-range-end", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: "/path/key"}, true, "port_range_end must be between port_range_start and 65535"},
-		{"missing-auth", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "", Password: "", PrivateRsaPath: "/path/key"}, true, "username or password must be set for SSH server"},
+		{"valid", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, false, ""},
+		{"missing-bindaddress", &ServerParameters{BindAddress: "", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "bind address is required"},
+		{"invalid-bindport", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 0, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "bind port must be between 1 and 65535"},
+		{"invalid-range-start", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: -1, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "port_range_start must be between 0 and 65535"},
+		{"invalid-range-end", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "port_range_end must be between port_range_start and 65535"},
+		{"missing-username", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "username must be set for SSH server"},
+		{"missing-password-and-authorized-keys", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "password or authorized_keys must be set for SSH server"},
 		{"missing-key", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: ""}, true, "at least one host key path must be provided"},
 	}
 	for _, tc := range tests {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -23,86 +24,6 @@ const (
 	ErrMask            uint32 = 0x80000000
 )
 
-// assignPort reserves or picks a port within range using the forwards map under lock.
-// It returns the assigned port or 0 and an error mask if no port could be assigned.
-func assignPort(reqPort, start, end int, forwards map[int]struct{}, lock *sync.Mutex) (int, uint32) {
-	// invalid range
-	if start > end {
-		return 0, ErrMask | ErrPortUnavailable
-	}
-	// specific port requested
-	if reqPort != 0 {
-		if reqPort < start || reqPort > end {
-			return 0, ErrMask | ErrPortOutOfRange
-		}
-		lock.Lock()
-		defer lock.Unlock()
-		if _, used := forwards[reqPort]; used {
-			return 0, ErrMask | ErrPortUnavailable
-		}
-		forwards[reqPort] = struct{}{}
-		return reqPort, 0
-	}
-	// pick first available
-	lock.Lock()
-	defer lock.Unlock()
-	for p := start; p <= end; p++ {
-		if _, used := forwards[p]; !used {
-			forwards[p] = struct{}{}
-			return p, 0
-		}
-	}
-	return 0, ErrMask | ErrPortUnavailable
-}
-
-// processHandshake performs the SSH handshake steps for IP and whitelist.
-// It sends ErrIPNotAllowed or ErrSuccess, reads whitelist count and entries, then confirms with ErrSuccess.
-func processHandshake(rw io.ReadWriter, remoteHost string, allowed []string) ([]string, error) {
-	var hb [4]byte
-	// 1) IP check
-	if len(allowed) > 0 && !isAllowed(remoteHost, allowed) {
-		binary.BigEndian.PutUint32(hb[:], ErrIPNotAllowed)
-		rw.Write(hb[:])
-		return nil, fmt.Errorf("IP %s not allowed", remoteHost)
-	}
-	// IP OK
-	binary.BigEndian.PutUint32(hb[:], ErrSuccess)
-	rw.Write(hb[:])
-
-	// 2) Read whitelist count
-	if _, err := io.ReadFull(rw, hb[:]); err != nil {
-		return nil, fmt.Errorf("read whitelist count: %w", err)
-	}
-	count := int(binary.BigEndian.Uint32(hb[:]))
-
-	// 3) Read entries
-	wl := make([]string, 0, count)
-	for i := 0; i < count; i++ {
-		if _, err := io.ReadFull(rw, hb[:]); err != nil {
-			return nil, fmt.Errorf("read whitelist entry length: %w", err)
-		}
-		length := int(binary.BigEndian.Uint32(hb[:]))
-		buf := make([]byte, length)
-		if _, err := io.ReadFull(rw, buf); err != nil {
-			return nil, fmt.Errorf("read whitelist entry: %w", err)
-		}
-		wl = append(wl, string(buf))
-	}
-
-	// 4) Confirm whitelist
-	binary.BigEndian.PutUint32(hb[:], ErrSuccess)
-	rw.Write(hb[:])
-	return wl, nil
-}
-
-// ForwardServer maintains state for port forwarding
-// sshConfig: SSH server configuration
-// bindAddress/Port: where to expose forwarded ports
-// portRangeStart/End: allowed range
-// allowedIPs: client whitelist
-// forwards: map of in-use ports
-// lock: protects forwards
-
 type ForwardServer struct {
 	sshConfig      *ssh.ServerConfig
 	bindAddress    string
@@ -114,14 +35,40 @@ type ForwardServer struct {
 	lock           sync.Mutex
 }
 
+// ForwardServer maintains state for port forwarding
+// sshConfig: SSH server configuration
+// bindAddress/Port: where to expose forwarded ports
+// portRangeStart/End: allowed range
+// allowedIPs: client whitelist
+// forwards: map of in-use ports
+// lock: protects forwards
+
 // Run starts the SSH reverse-tunnel server
-func Run(sp *config.ServerParameters) error {
+func Run(spOverride *config.ServerParameters) error {
+	var sp config.ServerParameters
+	if spOverride == nil {
+		flag.StringVar(&sp.BindAddress, config.SpKeyBindAddress, config.SpDefaultBindAddress, "bind address")
+		flag.IntVar(&sp.BindPort, config.SpKeyBindPort, config.SpDefaultBindPort, "bind port")
+		flag.IntVar(&sp.PortRangeStart, config.SpKeyPortRangeStart, config.SpDefaultPortRangeStart, "start port range")
+		flag.IntVar(&sp.PortRangeEnd, config.SpKeyPortRangeEnd, config.SpDefaultPortRangeEnd, "end port range")
+		flag.StringVar(&sp.Username, config.SpKeyUsername, config.SpDefaultUsername, "SSH username")
+		flag.StringVar(&sp.Password, config.SpKeyPassword, config.SpDefaultPassword, "SSH password")
+		flag.StringVar(&sp.PrivateRsaPath, config.SpKeyPrivateRsaPath, config.SpDefaultPrivateRsa, "path to RSA key")
+		flag.StringVar(&sp.PrivateEcdsaPath, config.SpKeyPrivateEcdsaPath, config.SpDefaultPrivateEcdsa, "path to ECDSA key")
+		flag.StringVar(&sp.PrivateEd25519Path, config.SpKeyPrivateEd25519Path, config.SpDefaultPrivateEd25519, "path to Ed25519 key")
+		flag.StringVar(&sp.AuthorizedKeysPath, config.SpKeyAuthorizedKeysPath, config.SpDefaultAuthorizedKeys, "path to authorized_keys")
+		flag.Var(&sp.AllowedIPs, config.SpKeyAllowedIPS, "comma-separated list of allowed IPs")
+		flag.Parse()
+	} else {
+		sp = *spOverride
+	}
+
 	// 1) Validate configuration
 	if err := sp.Validate(); err != nil {
 		return fmt.Errorf("invalid server parameters: %w", err)
 	}
 	// 2) Build SSH config
-	sshCfg, addr, err := config.GetServerConfig(sp)
+	sshCfg, addr, err := config.GetServerConfig(&sp)
 	if err != nil {
 		return fmt.Errorf("failed to build server config: %w", err)
 	}
@@ -317,6 +264,78 @@ RELEASE:
 	log.Printf("[*] Client disconnected, freed port %d", port)
 	delete(s.forwards, port)
 	s.lock.Unlock()
+}
+
+// assignPort reserves or picks a port within range using the forwards map under lock.
+// It returns the assigned port or 0 and an error mask if no port could be assigned.
+func assignPort(reqPort, start, end int, forwards map[int]struct{}, lock *sync.Mutex) (int, uint32) {
+	// invalid range
+	if start > end {
+		return 0, ErrMask | ErrPortUnavailable
+	}
+	// specific port requested
+	if reqPort != 0 {
+		if reqPort < start || reqPort > end {
+			return 0, ErrMask | ErrPortOutOfRange
+		}
+		lock.Lock()
+		defer lock.Unlock()
+		if _, used := forwards[reqPort]; used {
+			return 0, ErrMask | ErrPortUnavailable
+		}
+		forwards[reqPort] = struct{}{}
+		return reqPort, 0
+	}
+	// pick first available
+	lock.Lock()
+	defer lock.Unlock()
+	for p := start; p <= end; p++ {
+		if _, used := forwards[p]; !used {
+			forwards[p] = struct{}{}
+			return p, 0
+		}
+	}
+	return 0, ErrMask | ErrPortUnavailable
+}
+
+// processHandshake performs the SSH handshake steps for IP and whitelist.
+// It sends ErrIPNotAllowed or ErrSuccess, reads whitelist count and entries, then confirms with ErrSuccess.
+func processHandshake(rw io.ReadWriter, remoteHost string, allowed []string) ([]string, error) {
+	var hb [4]byte
+	// 1) IP check
+	if len(allowed) > 0 && !isAllowed(remoteHost, allowed) {
+		binary.BigEndian.PutUint32(hb[:], ErrIPNotAllowed)
+		rw.Write(hb[:])
+		return nil, fmt.Errorf("IP %s not allowed", remoteHost)
+	}
+	// IP OK
+	binary.BigEndian.PutUint32(hb[:], ErrSuccess)
+	rw.Write(hb[:])
+
+	// 2) Read whitelist count
+	if _, err := io.ReadFull(rw, hb[:]); err != nil {
+		return nil, fmt.Errorf("read whitelist count: %w", err)
+	}
+	count := int(binary.BigEndian.Uint32(hb[:]))
+
+	// 3) Read entries
+	wl := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		if _, err := io.ReadFull(rw, hb[:]); err != nil {
+			return nil, fmt.Errorf("read whitelist entry length: %w", err)
+		}
+		length := int(binary.BigEndian.Uint32(hb[:]))
+		buf := make([]byte, length)
+		if _, err := io.ReadFull(rw, buf); err != nil {
+			return nil, fmt.Errorf("read whitelist entry: %w", err)
+		}
+		wl = append(wl, string(buf))
+	}
+
+	// 4) Confirm whitelist
+	binary.BigEndian.PutUint32(hb[:], ErrSuccess)
+	rw.Write(hb[:])
+	return wl, nil
 }
 
 // isAllowed checks if ip matches allowed list entries (exact or CIDR)

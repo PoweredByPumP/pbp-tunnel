@@ -1,6 +1,7 @@
-.idea
+/.idea/*
+!/.idea/.gitignore
+!/.idea/runConfigurations
 
 /out
 /pbp-tunnel*
 /pbp-tunnel*.exe
-/.dev
