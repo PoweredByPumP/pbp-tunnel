@@ -16,8 +16,12 @@ func GetEnvValue(key, defaultValue string) string {
 	formatedKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
 
 	envKey := envPrefix + formatedKey
-	if v, ok := os.LookupEnv(envKey); ok && v != "" {
+
+	v, ok := os.LookupEnv(envKey)
+	if ok && v != "" {
 		return v
+	} else if ok {
+		return ""
 	}
 
 	return defaultValue

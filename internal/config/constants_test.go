@@ -148,7 +148,8 @@ func TestServerParametersValidate(t *testing.T) {
 		{"invalid-bindport", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 0, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "bind port must be between 1 and 65535"},
 		{"invalid-range-start", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: -1, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "port_range_start must be between 0 and 65535"},
 		{"invalid-range-end", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 3000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "port_range_end must be between port_range_start and 65535"},
-		{"missing-auth", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "", Password: "", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "username or password must be set for SSH server"},
+		{"missing-username", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "", Password: "pass", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "username must be set for SSH server"},
+		{"missing-password-and-authorized-keys", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", PrivateRsaPath: filepath.Join(tempDir, "/id_rsa")}, true, "password or authorized_keys must be set for SSH server"},
 		{"missing-key", &ServerParameters{BindAddress: "0.0.0.0", BindPort: 2022, PortRangeStart: 1000, PortRangeEnd: 2000, Username: "user", Password: "pass", PrivateRsaPath: ""}, true, "at least one host key path must be provided"},
 	}
 	for _, tc := range tests {

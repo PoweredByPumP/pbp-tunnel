@@ -275,6 +275,8 @@ func TestLoadServerConfig_MissingBindAddress(t *testing.T) {
 	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
 	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
 
+	t.Setenv("PBP_TUNNEL_BIND", "") // Missing bind address
+
 	invalidServerCfg := LoadServerConfig()
 	if invalidServerCfg != nil {
 		t.Error("LoadServerConfig: configuration without bind address didn't return nil")

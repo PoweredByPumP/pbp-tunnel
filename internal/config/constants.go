@@ -166,8 +166,11 @@ func (sp *ServerParameters) Validate() error {
 	if sp.PortRangeEnd < sp.PortRangeStart || sp.PortRangeEnd > 65535 {
 		return fmt.Errorf("port_range_end must be between port_range_start and 65535")
 	}
-	if sp.Username == "" && sp.Password == "" {
-		return fmt.Errorf("username or password must be set for SSH server")
+	if sp.Username == "" {
+		return fmt.Errorf("username must be set for SSH server")
+	}
+	if sp.Password == "" && sp.AuthorizedKeysPath == "" {
+		return fmt.Errorf("password or authorized_keys must be set for SSH server")
 	}
 	if sp.PrivateRsaPath == "" && sp.PrivateEcdsaPath == "" && sp.PrivateEd25519Path == "" {
 		return fmt.Errorf("at least one host key path must be provided")
