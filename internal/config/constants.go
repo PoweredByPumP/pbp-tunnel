@@ -148,7 +148,7 @@ type ServerParameters struct {
 	PrivateRsaPath     string      `json:"private_rsa_path,omitempty"`
 	PrivateEcdsaPath   string      `json:"private_ecdsa_path,omitempty"`
 	PrivateEd25519Path string      `json:"private_ed25519_path,omitempty"`
-	AuthorizedKeysPath string      `json:"authorized_keys,omitempty"`
+	AuthorizedKeysPath string      `json:"authorized_keys_path,omitempty"`
 	AllowedIPs         StringArray `json:"allowed_ips,omitempty"`
 }
 
