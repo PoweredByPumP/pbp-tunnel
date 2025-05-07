@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,10 +66,10 @@ func Run(cpOverride *config.ClientParameters) error {
 		maxRetries = 5
 		retryDelay = 5 * time.Second
 	)
-	retry := 0
+	retry := 1
 
 	for {
-		log.Printf("[*] Connecting to %s:%d (attempt %d/%d)", cp.Endpoint, cp.EndpointPort, retry+1, maxRetries)
+		log.Printf("[*] Connecting to %s:%d (attempt %d/%d)", cp.Endpoint, cp.EndpointPort, retry, maxRetries)
 
 		sshCfg, addr, err := config.GetClientConfig(&cp)
 		if err != nil {
@@ -88,7 +89,9 @@ func Run(cpOverride *config.ClientParameters) error {
 				if err := session.runSession(&cp); err != nil {
 					log.Printf("[-] Session error: %v", err)
 					clientConn.Close()
-					return err
+					if !strings.Contains(err.Error(), "An existing connection was forcibly closed by the remote host") {
+						return err
+					}
 				}
 
 				session.ActiveConnections.Wait()
@@ -96,7 +99,7 @@ func Run(cpOverride *config.ClientParameters) error {
 
 				log.Printf("[*] Session closed, retrying in %v...", retryDelay)
 				time.Sleep(retryDelay)
-				retry = 0
+				retry = 1
 				continue
 			}
 		}
