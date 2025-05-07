@@ -35,17 +35,17 @@ const (
 	CpDefaultRemotePort     int    = 0
 	CpDefaultHostKeyLevel   int    = 2
 
-	SpKeyBindAddress    string = "bind"
-	SpKeyBindPort       string = "port"
-	SpKeyPortRangeStart string = "port-range-start"
-	SpKeyPortRangeEnd   string = "port-range-end"
-	SpKeyUsername       string = "username"
-	SpKeyPassword       string = "password"
-	SpKeyPrivateRsa     string = "private-rsa"
-	SpKeyPrivateEcdsa   string = "private-ecdsa"
-	SpKeyPrivateEd25519 string = "private-ed25519"
-	SpKeyAuthorizedKeys string = "authorized-keys"
-	SpKeyAllowedIPS     string = "allowed-ips"
+	SpKeyBindAddress        string = "bind"
+	SpKeyBindPort           string = "port"
+	SpKeyPortRangeStart     string = "port-range-start"
+	SpKeyPortRangeEnd       string = "port-range-end"
+	SpKeyUsername           string = "username"
+	SpKeyPassword           string = "password"
+	SpKeyPrivateRsaPath     string = "private-rsa-path"
+	SpKeyPrivateEcdsaPath   string = "private-ecdsa-path"
+	SpKeyPrivateEd25519Path string = "private-ed25519-path"
+	SpKeyAuthorizedKeysPath string = "authorized-keys-path"
+	SpKeyAllowedIPS         string = "allowed-ips"
 
 	SpDefaultBindAddress    string = "0.0.0.0"
 	SpDefaultBindPort       int    = DefaultEndpointPort
@@ -145,9 +145,9 @@ type ServerParameters struct {
 	PortRangeEnd       int         `json:"port_range_end,omitempty"`
 	Username           string      `json:"username,omitempty"`
 	Password           string      `json:"password,omitempty"`
-	PrivateRsaPath     string      `json:"private_rsa,omitempty"`
-	PrivateEcdsaPath   string      `json:"private_ecdsa,omitempty"`
-	PrivateEd25519Path string      `json:"private_ed25519,omitempty"`
+	PrivateRsaPath     string      `json:"private_rsa_path,omitempty"`
+	PrivateEcdsaPath   string      `json:"private_ecdsa_path,omitempty"`
+	PrivateEd25519Path string      `json:"private_ed25519_path,omitempty"`
 	AuthorizedKeysPath string      `json:"authorized_keys,omitempty"`
 	AllowedIPs         StringArray `json:"allowed_ips,omitempty"`
 }

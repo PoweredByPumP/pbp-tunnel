@@ -111,16 +111,16 @@ func LoadEnvConfig() *AppConfig {
 	if v := GetEnvValue(SpKeyPassword, ""); v != "" {
 		configuration.Server.Password = v
 	}
-	if v := GetEnvValue(SpKeyPrivateRsa, ""); v != "" {
+	if v := GetEnvValue(SpKeyPrivateRsaPath, ""); v != "" {
 		configuration.Server.PrivateRsaPath = v
 	}
-	if v := GetEnvValue(SpKeyPrivateEcdsa, ""); v != "" {
+	if v := GetEnvValue(SpKeyPrivateEcdsaPath, ""); v != "" {
 		configuration.Server.PrivateEcdsaPath = v
 	}
-	if v := GetEnvValue(SpKeyPrivateEd25519, ""); v != "" {
+	if v := GetEnvValue(SpKeyPrivateEd25519Path, ""); v != "" {
 		configuration.Server.PrivateEd25519Path = v
 	}
-	if v := GetEnvValue(SpKeyAuthorizedKeys, ""); v != "" {
+	if v := GetEnvValue(SpKeyAuthorizedKeysPath, ""); v != "" {
 		configuration.Server.AuthorizedKeysPath = v
 	}
 	if v := GetEnvValue(SpKeyAllowedIPS, ""); v != "" {

@@ -237,7 +237,7 @@ func TestLoadServerConfig_ValidComplete(t *testing.T) {
 	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "65535")
 	t.Setenv("PBP_TUNNEL_USERNAME", "user")
 	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
-	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
+	t.Setenv("PBP_TUNNEL_PRIVATE_RSA_PATH", "id_rsa")
 
 	util.GenerateAndSavePrivateKeyToFile(filepath.Join(tempDir, "id_rsa"), "rsa")
 	defer os.Remove("id_rsa")
@@ -279,7 +279,7 @@ func TestLoadServerConfig_MissingBindAddress(t *testing.T) {
 	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "65535")
 	t.Setenv("PBP_TUNNEL_USERNAME", "user")
 	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
-	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
+	t.Setenv("PBP_TUNNEL_PRIVATE_RSA_PATH", "id_rsa")
 
 	t.Setenv("PBP_TUNNEL_BIND", "") // Missing bind address
 
@@ -299,7 +299,7 @@ func TestLoadServerConfig_InvalidPort(t *testing.T) {
 	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "65535")
 	t.Setenv("PBP_TUNNEL_USERNAME", "user")
 	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
-	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
+	t.Setenv("PBP_TUNNEL_PRIVATE_RSA_PATH", "id_rsa")
 
 	invalidServerCfg := LoadServerConfig()
 	if invalidServerCfg != nil {
@@ -317,7 +317,7 @@ func TestLoadServerConfig_InvalidPortRange(t *testing.T) {
 	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "60000") // End < Start
 	t.Setenv("PBP_TUNNEL_USERNAME", "user")
 	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
-	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
+	t.Setenv("PBP_TUNNEL_PRIVATE_RSA_PATH", "id_rsa")
 
 	invalidServerCfg := LoadServerConfig()
 	if invalidServerCfg != nil {
