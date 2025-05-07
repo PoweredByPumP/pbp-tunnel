@@ -40,7 +40,7 @@ func LoadEnvConfig() *AppConfig {
 		}
 		configuration.Client.Endpoint = v
 	}
-	if v := GetEnvValue(CpKeyEndpointPort, ""); v != "" {
+	if v := GetEnvValue(CpKeyEndpointPort, CpKeyEndpointPort); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			configuration.Client.EndpointPort = p
 		}
@@ -57,23 +57,23 @@ func LoadEnvConfig() *AppConfig {
 	if v := GetEnvValue(CpKeyHostKeyPath, ""); v != "" {
 		configuration.Client.HostKeyPath = v
 	}
-	if v := GetEnvValue(CpKeyLocalHost, "localhost"); v != "" {
+	if v := GetEnvValue(CpKeyLocalHost, CpDefaultLocalHost); v != "" {
 		configuration.Client.LocalHost = v
 	}
-	if v := GetEnvValue(CpKeyLocalPort, ""); v != "" {
+	if v := GetEnvValue(CpKeyLocalPort, strconv.Itoa(CpDefaultLocalPort)); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			configuration.Client.LocalPort = p
 		}
 	}
-	if v := GetEnvValue(CpKeyRemoteHost, "localhost"); v != "" {
+	if v := GetEnvValue(CpKeyRemoteHost, CpDefaultRemoteHost); v != "" {
 		configuration.Client.RemoteHost = v
 	}
-	if v := GetEnvValue(CpKeyRemotePort, ""); v != "" {
+	if v := GetEnvValue(CpKeyRemotePort, strconv.Itoa(CpDefaultRemotePort)); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			configuration.Client.RemotePort = p
 		}
 	}
-	if v := GetEnvValue(CpKeyHostKeyLevel, ""); v != "" {
+	if v := GetEnvValue(CpKeyHostKeyLevel, strconv.Itoa(CpDefaultHostKeyLevel)); v != "" {
 		if lvl, err := strconv.Atoi(v); err == nil {
 			configuration.Client.HostKeyLevel = lvl
 		}
@@ -83,20 +83,20 @@ func LoadEnvConfig() *AppConfig {
 	}
 
 	// Server section
-	if v := GetEnvValue(SpKeyBindAddress, ""); v != "" {
+	if v := GetEnvValue(SpKeyBindAddress, SpDefaultBindAddress); v != "" {
 		configuration.Server.BindAddress = v
 	}
-	if v := GetEnvValue(SpKeyBindPort, ""); v != "" {
+	if v := GetEnvValue(SpKeyBindPort, strconv.Itoa(SpDefaultBindPort)); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			configuration.Server.BindPort = p
 		}
 	}
-	if v := GetEnvValue(SpKeyPortRangeStart, ""); v != "" {
+	if v := GetEnvValue(SpKeyPortRangeStart, strconv.Itoa(SpDefaultPortRangeStart)); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			configuration.Server.PortRangeStart = p
 		}
 	}
-	if v := GetEnvValue(SpKeyPortRangeEnd, ""); v != "" {
+	if v := GetEnvValue(SpKeyPortRangeEnd, strconv.Itoa(SpDefaultPortRangeEnd)); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			configuration.Server.PortRangeEnd = p
 		}
