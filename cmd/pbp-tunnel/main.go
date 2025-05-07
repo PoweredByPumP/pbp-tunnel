@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -11,9 +12,24 @@ import (
 	"github.com/poweredbypump/pbp-tunnel/internal/util"
 )
 
+var Version = "dev"
+
 func main() {
+	// Version flag
+	versionFlag := flag.Bool("version", false, "Print version information and exit")
+
 	// Default help usage
 	flag.Usage = util.PrintHelp
+
+	// Parse general pbp-tunnel command line flags
+	flag.Parse()
+	if *versionFlag {
+		fmt.Printf("pbp-tunnel (version %s)\n", Version)
+		fmt.Println("Port-tunnelling utility proudly developed by Powered By PumP.")
+		return
+	}
+
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	// Determine execution mode: subcommand or config file
 	if len(os.Args) < 2 {
