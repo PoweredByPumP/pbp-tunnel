@@ -192,6 +192,7 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 	}()
 
 	var wg sync.WaitGroup
+	var doWaitForConnection = true
 	for id := 0; ; id++ {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -202,6 +203,11 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 
 			default:
 				log.Printf("[-] Forward accept error: %v", err)
+				if strings.Contains(err.Error(), "use of closed network connection") {
+					// listener closed
+					doWaitForConnection = false
+				}
+
 				goto RELEASE
 			}
 		}
@@ -258,11 +264,16 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 	}
 
 RELEASE:
-	wg.Wait()
-	// release port
+	if doWaitForConnection {
+		wg.Wait()
+	}
+
+	log.Printf("[*] Waiting for lock to release port %d", port)
 	s.lock.Lock()
+
 	log.Printf("[*] Client disconnected, freed port %d", port)
 	delete(s.forwards, port)
+
 	s.lock.Unlock()
 }
 
