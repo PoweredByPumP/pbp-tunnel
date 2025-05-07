@@ -101,28 +101,236 @@ func TestLoadConfig_ValidJSON(t *testing.T) {
 	}
 }
 
-func TestLoadClientAndServerConfig(t *testing.T) {
+func TestLoadClientConfig_ValidComplete(t *testing.T) {
+	// Test with a complete valid client configuration
 	os.Clearenv()
-	t.Setenv("PBP_TUNNEL_ENDPOINT", "cli.example")
-	t.Setenv("PBP_TUNNEL_LOCAL_PORT", "4444")
+	t.Setenv("PBP_TUNNEL_TYPE", "client")
+	t.Setenv("PBP_TUNNEL_ENDPOINT", "poweredbypump.com")
+	t.Setenv("PBP_TUNNEL_PORT", "52135")
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	t.Setenv("PBP_TUNNEL_LOCAL_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_LOCAL_PORT", "8080")
+	t.Setenv("PBP_TUNNEL_REMOTE_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_REMOTE_PORT", "8081")
+	t.Setenv("PBP_TUNNEL_HOST_KEY_LEVEL", "0")
 
 	clientCfg := LoadClientConfig()
-	if clientCfg.Endpoint != "cli.example" {
-		t.Errorf("LoadClientConfig: Endpoint = %q; want %q", clientCfg.Endpoint, "cli.example")
+	if clientCfg == nil {
+		t.Error("LoadClientConfig: complete valid configuration returned nil")
+	} else {
+		if clientCfg.Endpoint != "poweredbypump.com" {
+			t.Errorf("LoadClientConfig: Endpoint = %q; want %q", clientCfg.Endpoint, "poweredbypump.com")
+		}
+		if clientCfg.EndpointPort != 52135 {
+			t.Errorf("LoadClientConfig: EndpointPort = %d; want %d", clientCfg.EndpointPort, 52135)
+		}
+		if clientCfg.Username != "user" {
+			t.Errorf("LoadClientConfig: Username = %q; want %q", clientCfg.Username, "user")
+		}
+		if clientCfg.Password != "fake" {
+			t.Errorf("LoadClientConfig: Password = %q; want %q", clientCfg.Password, "fake")
+		}
+		if clientCfg.LocalHost != "localhost" {
+			t.Errorf("LoadClientConfig: LocalHost = %q; want %q", clientCfg.LocalHost, "localhost")
+		}
+		if clientCfg.LocalPort != 8080 {
+			t.Errorf("LoadClientConfig: LocalPort = %d; want %d", clientCfg.LocalPort, 8080)
+		}
+		if clientCfg.RemoteHost != "localhost" {
+			t.Errorf("LoadClientConfig: RemoteHost = %q; want %q", clientCfg.RemoteHost, "localhost")
+		}
+		if clientCfg.RemotePort != 8081 {
+			t.Errorf("LoadClientConfig: RemotePort = %d; want %d", clientCfg.RemotePort, 8081)
+		}
+		if clientCfg.HostKeyLevel != 0 {
+			t.Errorf("LoadClientConfig: HostKeyLevel = %d; want %d", clientCfg.HostKeyLevel, 0)
+		}
 	}
-	if clientCfg.LocalPort != 4444 {
-		t.Errorf("LoadClientConfig: LocalPort = %d; want %d", clientCfg.LocalPort, 4444)
-	}
+}
 
+func TestLoadClientConfig_MissingEndpoint(t *testing.T) {
+	// Test with missing endpoint - should be invalid
 	os.Clearenv()
-	t.Setenv("PBP_TUNNEL_BIND", "srv.example")
-	t.Setenv("PBP_TUNNEL_PORT", "5555")
+	t.Setenv("PBP_TUNNEL_TYPE", "client")
+	t.Setenv("PBP_TUNNEL_PORT", "52135")
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	t.Setenv("PBP_TUNNEL_LOCAL_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_LOCAL_PORT", "8080")
+	t.Setenv("PBP_TUNNEL_REMOTE_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_REMOTE_PORT", "8081")
+
+	invalidClientCfg := LoadClientConfig()
+	if invalidClientCfg != nil {
+		t.Error("LoadClientConfig: configuration without endpoint didn't return nil")
+	}
+}
+
+func TestLoadClientConfig_InvalidPort(t *testing.T) {
+	// Test with invalid port - should be invalid
+	os.Clearenv()
+	t.Setenv("PBP_TUNNEL_TYPE", "client")
+	t.Setenv("PBP_TUNNEL_ENDPOINT", "poweredbypump.com")
+	t.Setenv("PBP_TUNNEL_PORT", "0") // Invalid port
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	t.Setenv("PBP_TUNNEL_LOCAL_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_LOCAL_PORT", "8080")
+	t.Setenv("PBP_TUNNEL_REMOTE_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_REMOTE_PORT", "8081")
+
+	invalidClientCfg := LoadClientConfig()
+	if invalidClientCfg != nil {
+		t.Error("LoadClientConfig: configuration with invalid port didn't return nil")
+	}
+}
+
+func TestLoadClientConfig_MissingUsername(t *testing.T) {
+	// Test with missing username - should be invalid
+	os.Clearenv()
+	t.Setenv("PBP_TUNNEL_TYPE", "client")
+	t.Setenv("PBP_TUNNEL_ENDPOINT", "poweredbypump.com")
+	t.Setenv("PBP_TUNNEL_PORT", "52135")
+	// Missing username
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	t.Setenv("PBP_TUNNEL_LOCAL_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_LOCAL_PORT", "8080")
+	t.Setenv("PBP_TUNNEL_REMOTE_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_REMOTE_PORT", "8081")
+
+	invalidClientCfg := LoadClientConfig()
+	if invalidClientCfg != nil {
+		t.Error("LoadClientConfig: configuration without username didn't return nil")
+	}
+}
+
+func TestLoadClientConfig_MissingAuth(t *testing.T) {
+	// Test with neither password nor private key - should be invalid
+	os.Clearenv()
+	t.Setenv("PBP_TUNNEL_TYPE", "client")
+	t.Setenv("PBP_TUNNEL_ENDPOINT", "poweredbypump.com")
+	t.Setenv("PBP_TUNNEL_PORT", "52135")
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	// Neither password nor private key
+	t.Setenv("PBP_TUNNEL_LOCAL_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_LOCAL_PORT", "8080")
+	t.Setenv("PBP_TUNNEL_REMOTE_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_REMOTE_PORT", "8081")
+
+	invalidClientCfg := LoadClientConfig()
+	if invalidClientCfg != nil {
+		t.Error("LoadClientConfig: configuration without password or private key didn't return nil")
+	}
+}
+
+func TestLoadServerConfig_ValidComplete(t *testing.T) {
+	// Test with a complete valid server configuration
+	os.Clearenv()
+	t.Setenv("PBP_TUNNEL_TYPE", "server")
+	t.Setenv("PBP_TUNNEL_BIND", "0.0.0.0")
+	t.Setenv("PBP_TUNNEL_PORT", "52135")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_START", "49152")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "65535")
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
 
 	serverCfg := LoadServerConfig()
-	if serverCfg.BindAddress != "srv.example" {
-		t.Errorf("LoadServerConfig: BindAddress = %q; want %q", serverCfg.BindAddress, "srv.example")
+	if serverCfg == nil {
+		t.Error("LoadServerConfig: complete valid configuration returned nil")
+	} else {
+		if serverCfg.BindAddress != "0.0.0.0" {
+			t.Errorf("LoadServerConfig: BindAddress = %q; want %q", serverCfg.BindAddress, "0.0.0.0")
+		}
+		if serverCfg.BindPort != 52135 {
+			t.Errorf("LoadServerConfig: BindPort = %d; want %d", serverCfg.BindPort, 52135)
+		}
+		if serverCfg.PortRangeStart != 49152 {
+			t.Errorf("LoadServerConfig: PortRangeStart = %d; want %d", serverCfg.PortRangeStart, 49152)
+		}
+		if serverCfg.PortRangeEnd != 65535 {
+			t.Errorf("LoadServerConfig: PortRangeEnd = %d; want %d", serverCfg.PortRangeEnd, 65535)
+		}
+		if serverCfg.Username != "user" {
+			t.Errorf("LoadServerConfig: Username = %q; want %q", serverCfg.Username, "user")
+		}
+		if serverCfg.Password != "fake" {
+			t.Errorf("LoadServerConfig: Password = %q; want %q", serverCfg.Password, "fake")
+		}
+		if serverCfg.PrivateRsaPath != "id_rsa" {
+			t.Errorf("LoadServerConfig: PrivateRsaPath = %q; want %q", serverCfg.PrivateRsaPath, "id_rsa")
+		}
 	}
-	if serverCfg.BindPort != 5555 {
-		t.Errorf("LoadServerConfig: BindPort = %d; want %d", serverCfg.BindPort, 5555)
+}
+
+func TestLoadServerConfig_MissingBindAddress(t *testing.T) {
+	// Test with missing bind address - should be invalid
+	os.Clearenv()
+	t.Setenv("PBP_TUNNEL_TYPE", "server")
+	t.Setenv("PBP_TUNNEL_PORT", "52135")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_START", "49152")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "65535")
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
+
+	invalidServerCfg := LoadServerConfig()
+	if invalidServerCfg != nil {
+		t.Error("LoadServerConfig: configuration without bind address didn't return nil")
+	}
+}
+
+func TestLoadServerConfig_InvalidPort(t *testing.T) {
+	// Test with invalid port - should be invalid
+	os.Clearenv()
+	t.Setenv("PBP_TUNNEL_TYPE", "server")
+	t.Setenv("PBP_TUNNEL_BIND", "0.0.0.0")
+	t.Setenv("PBP_TUNNEL_PORT", "0") // Invalid port
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_START", "49152")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "65535")
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
+
+	invalidServerCfg := LoadServerConfig()
+	if invalidServerCfg != nil {
+		t.Error("LoadServerConfig: configuration with invalid port didn't return nil")
+	}
+}
+
+func TestLoadServerConfig_InvalidPortRange(t *testing.T) {
+	// Test with invalid port range (end < start) - should be invalid
+	os.Clearenv()
+	t.Setenv("PBP_TUNNEL_TYPE", "server")
+	t.Setenv("PBP_TUNNEL_BIND", "0.0.0.0")
+	t.Setenv("PBP_TUNNEL_PORT", "52135")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_START", "65000")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "60000") // End < Start
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	t.Setenv("PBP_TUNNEL_PRIVATE_RSA", "id_rsa")
+
+	invalidServerCfg := LoadServerConfig()
+	if invalidServerCfg != nil {
+		t.Error("LoadServerConfig: configuration with invalid port range didn't return nil")
+	}
+}
+
+func TestLoadServerConfig_NoHostKey(t *testing.T) {
+	// Test with no host key specified - should be invalid
+	os.Clearenv()
+	t.Setenv("PBP_TUNNEL_TYPE", "server")
+	t.Setenv("PBP_TUNNEL_BIND", "0.0.0.0")
+	t.Setenv("PBP_TUNNEL_PORT", "52135")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_START", "49152")
+	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "65535")
+	t.Setenv("PBP_TUNNEL_USERNAME", "user")
+	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
+	// No host key (neither RSA, ECDSA, nor ED25519)
+
+	invalidServerCfg := LoadServerConfig()
+	if invalidServerCfg != nil {
+		t.Error("LoadServerConfig: configuration without host key didn't return nil")
 	}
 }

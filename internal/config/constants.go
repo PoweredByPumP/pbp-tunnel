@@ -2,7 +2,61 @@ package config
 
 import (
 	"fmt"
+	"github.com/poweredbypump/pbp-tunnel/internal/util"
+	"os"
 	"strings"
+)
+
+const DefaultEndpointPort int = 52135
+
+const (
+	CpKeyEndpoint       string = "endpoint"
+	CpKeyEndpointPort   string = "port"
+	CpKeyUsername       string = "username"
+	CpKeyPassword       string = "password"
+	CpKeyPrivateKeyPath string = "identity"
+	CpKeyHostKeyPath    string = "host-key"
+	CpKeyLocalHost      string = "local-host"
+	CpKeyLocalPort      string = "local-port"
+	CpKeyRemoteHost     string = "remote-host"
+	CpKeyRemotePort     string = "remote-port"
+	CpKeyHostKeyLevel   string = "host-key-level"
+	CpKeyAllowedIPs     string = "allowed-ips"
+
+	CpDefaultEndpoint       string = ""
+	CpDefaultEndpointPort          = DefaultEndpointPort
+	CpDefaultUsername       string = ""
+	CpDefaultPassword       string = ""
+	CpDefaultPrivateKeyPath string = ""
+	CpDefaultHostKeyPath    string = ""
+	CpDefaultLocalHost      string = "localhost"
+	CpDefaultLocalPort      int    = 80
+	CpDefaultRemoteHost     string = "localhost"
+	CpDefaultRemotePort     int    = 0
+	CpDefaultHostKeyLevel   int    = 2
+
+	SpKeyBindAddress    string = "bind"
+	SpKeyBindPort       string = "port"
+	SpKeyPortRangeStart string = "port-range-start"
+	SpKeyPortRangeEnd   string = "port-range-end"
+	SpKeyUsername       string = "username"
+	SpKeyPassword       string = "password"
+	SpKeyPrivateRsa     string = "private-rsa"
+	SpKeyPrivateEcdsa   string = "private-ecdsa"
+	SpKeyPrivateEd25519 string = "private-ed25519"
+	SpKeyAuthorizedKeys string = "authorized-keys"
+	SpKeyAllowedIPS     string = "allowed-ips"
+
+	SpDefaultBindAddress    string = "0.0.0.0"
+	SpDefaultBindPort       int    = DefaultEndpointPort
+	SpDefaultPortRangeStart int    = 49152
+	SpDefaultPortRangeEnd   int    = 65535
+	SpDefaultUsername       string = ""
+	SpDefaultPassword       string = ""
+	SpDefaultPrivateRsa     string = "id_rsa"
+	SpDefaultPrivateEcdsa   string = ""
+	SpDefaultPrivateEd25519 string = ""
+	SpDefaultAuthorizedKeys string = ""
 )
 
 // StringArray is a flag.Stringer implementation for multiple values
@@ -69,8 +123,8 @@ func (cp *ClientParameters) Validate() error {
 	if cp.RemoteHost == "" {
 		return fmt.Errorf("remote_host is required")
 	}
-	if cp.RemotePort <= 0 || cp.RemotePort > 65535 {
-		return fmt.Errorf("remote_port must be between 1 and 65535")
+	if cp.RemotePort < 0 || cp.RemotePort > 65535 {
+		return fmt.Errorf("remote_port must be between 0 and 65535")
 	}
 	return nil
 }
@@ -118,5 +172,43 @@ func (sp *ServerParameters) Validate() error {
 	if sp.PrivateRsaPath == "" && sp.PrivateEcdsaPath == "" && sp.PrivateEd25519Path == "" {
 		return fmt.Errorf("at least one host key path must be provided")
 	}
+
+	err := sp.AssertHostKeyOrGenerate()
+	if err != nil {
+		return fmt.Errorf("failed to assert or generate host key: %v", err)
+	}
+
+	return nil
+}
+
+func (sp *ServerParameters) AssertHostKeyOrGenerate() error {
+
+	if sp.PrivateRsaPath != "" {
+		if _, err := os.Stat(sp.PrivateRsaPath); err != nil {
+			_, err = util.GenerateAndSavePrivateKeyToFile(sp.PrivateRsaPath, "rsa")
+			if err != nil {
+				return fmt.Errorf("failed to generate RSA key: %v", err)
+			}
+		}
+	}
+
+	if sp.PrivateEcdsaPath != "" {
+		if _, err := os.Stat(sp.PrivateEcdsaPath); err != nil {
+			_, err = util.GenerateAndSavePrivateKeyToFile(sp.PrivateEcdsaPath, "ecdsa")
+			if err != nil {
+				return fmt.Errorf("failed to generate ECDSA key: %v", err)
+			}
+		}
+	}
+
+	if sp.PrivateEd25519Path != "" {
+		if _, err := os.Stat(sp.PrivateEd25519Path); err != nil {
+			_, err = util.GenerateAndSavePrivateKeyToFile(sp.PrivateEd25519Path, "ed25519")
+			if err != nil {
+				return fmt.Errorf("failed to generate Ed25519 key: %v", err)
+			}
+		}
+	}
+
 	return nil
 }

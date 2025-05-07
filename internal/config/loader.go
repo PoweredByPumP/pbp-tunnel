@@ -8,211 +8,167 @@ import (
 	"strings"
 )
 
-const envPrefix = "PBP_TUNNEL"
+const envPrefix = "PBP_TUNNEL_"
 
 // GetEnvValue fetches an environment variable PBP_TUNNEL_<KEY> or returns defaultValue if unset.
-// Key should match the JSON tag (e.g., "endpoint", "remote_host", etc.)
+// KEY should match the JSON tag in caps (e.g., "ENDPOINT", "REMOTE_HOST", etc.)
 func GetEnvValue(key, defaultValue string) string {
-	envKey := envPrefix + "_" + strings.ReplaceAll(strings.ToUpper(key), "-", "_")
+	formatedKey := strings.ReplaceAll(strings.ToUpper(key), "-", "_")
+
+	envKey := envPrefix + formatedKey
 	if v, ok := os.LookupEnv(envKey); ok && v != "" {
 		return v
 	}
+
 	return defaultValue
 }
 
 // LoadEnvConfig populates AppConfig fields from environment variables only.
 func LoadEnvConfig() *AppConfig {
-	cfg := &AppConfig{}
+	configuration := &AppConfig{}
+	configuration.Client = &ClientParameters{}
+	configuration.Server = &ServerParameters{}
+
+	// Type section
+	if v := GetEnvValue("type", ""); v != "" {
+		configuration.Type = v
+	}
+
 	// Client section
-	if v := GetEnvValue("endpoint", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
+	if v := GetEnvValue(CpKeyEndpoint, ""); v != "" {
+		if configuration.Client == nil {
 		}
-		cfg.Client.Endpoint = v
+		configuration.Client.Endpoint = v
 	}
-	if v := GetEnvValue("port", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
+	if v := GetEnvValue(CpKeyEndpointPort, ""); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
-			cfg.Client.EndpointPort = p
+			configuration.Client.EndpointPort = p
 		}
 	}
-	if v := GetEnvValue("username", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
-		cfg.Client.Username = v
+	if v := GetEnvValue(CpKeyUsername, ""); v != "" {
+		configuration.Client.Username = v
 	}
-	if v := GetEnvValue("password", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
-		cfg.Client.Password = v
+	if v := GetEnvValue(CpKeyPassword, ""); v != "" {
+		configuration.Client.Password = v
 	}
-	if v := GetEnvValue("identity", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
-		cfg.Client.PrivateKeyPath = v
+	if v := GetEnvValue(CpKeyPrivateKeyPath, ""); v != "" {
+		configuration.Client.PrivateKeyPath = v
 	}
-	if v := GetEnvValue("host_key", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
-		cfg.Client.HostKeyPath = v
+	if v := GetEnvValue(CpKeyHostKeyPath, ""); v != "" {
+		configuration.Client.HostKeyPath = v
 	}
-	if v := GetEnvValue("local_host", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
-		cfg.Client.LocalHost = v
+	if v := GetEnvValue(CpKeyLocalHost, "localhost"); v != "" {
+		configuration.Client.LocalHost = v
 	}
-	if v := GetEnvValue("local_port", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
+	if v := GetEnvValue(CpKeyLocalPort, ""); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
-			cfg.Client.LocalPort = p
+			configuration.Client.LocalPort = p
 		}
 	}
-	if v := GetEnvValue("remote_host", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
-		cfg.Client.RemoteHost = v
+	if v := GetEnvValue(CpKeyRemoteHost, "localhost"); v != "" {
+		configuration.Client.RemoteHost = v
 	}
-	if v := GetEnvValue("remote_port", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
+	if v := GetEnvValue(CpKeyRemotePort, ""); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
-			cfg.Client.RemotePort = p
+			configuration.Client.RemotePort = p
 		}
 	}
-	if v := GetEnvValue("host_key_level", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
+	if v := GetEnvValue(CpKeyHostKeyLevel, ""); v != "" {
 		if lvl, err := strconv.Atoi(v); err == nil {
-			cfg.Client.HostKeyLevel = lvl
+			configuration.Client.HostKeyLevel = lvl
 		}
 	}
-	if v := GetEnvValue("allowed_ips", ""); v != "" {
-		if cfg.Client == nil {
-			cfg.Client = &ClientParameters{}
-		}
-		cfg.Client.AllowedIPs = strings.Split(v, ",")
+	if v := GetEnvValue(CpKeyAllowedIPs, ""); v != "" {
+		configuration.Client.AllowedIPs = strings.Split(v, ",")
 	}
 
 	// Server section
-	if v := GetEnvValue("bind", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
-		cfg.Server.BindAddress = v
+	if v := GetEnvValue(SpKeyBindAddress, ""); v != "" {
+		configuration.Server.BindAddress = v
 	}
-	if v := GetEnvValue("port", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
+	if v := GetEnvValue(SpKeyBindPort, ""); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
-			cfg.Server.BindPort = p
+			configuration.Server.BindPort = p
 		}
 	}
-	if v := GetEnvValue("port_range_start", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
+	if v := GetEnvValue(SpKeyPortRangeStart, ""); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
-			cfg.Server.PortRangeStart = p
+			configuration.Server.PortRangeStart = p
 		}
 	}
-	if v := GetEnvValue("port_range_end", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
+	if v := GetEnvValue(SpKeyPortRangeEnd, ""); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
-			cfg.Server.PortRangeEnd = p
+			configuration.Server.PortRangeEnd = p
 		}
 	}
-	if v := GetEnvValue("username", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
-		cfg.Server.Username = v
+	if v := GetEnvValue(SpKeyUsername, ""); v != "" {
+		configuration.Server.Username = v
 	}
-	if v := GetEnvValue("password", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
-		cfg.Server.Password = v
+	if v := GetEnvValue(SpKeyPassword, ""); v != "" {
+		configuration.Server.Password = v
 	}
-	if v := GetEnvValue("private_rsa", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
-		cfg.Server.PrivateRsaPath = v
+	if v := GetEnvValue(SpKeyPrivateRsa, ""); v != "" {
+		configuration.Server.PrivateRsaPath = v
 	}
-	if v := GetEnvValue("private_ecdsa", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
-		cfg.Server.PrivateEcdsaPath = v
+	if v := GetEnvValue(SpKeyPrivateEcdsa, ""); v != "" {
+		configuration.Server.PrivateEcdsaPath = v
 	}
-	if v := GetEnvValue("private_ed25519", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
-		cfg.Server.PrivateEd25519Path = v
+	if v := GetEnvValue(SpKeyPrivateEd25519, ""); v != "" {
+		configuration.Server.PrivateEd25519Path = v
 	}
-	if v := GetEnvValue("authorized_keys", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
-		cfg.Server.AuthorizedKeysPath = v
+	if v := GetEnvValue(SpKeyAuthorizedKeys, ""); v != "" {
+		configuration.Server.AuthorizedKeysPath = v
 	}
-	if v := GetEnvValue("allowed_ips", ""); v != "" {
-		if cfg.Server == nil {
-			cfg.Server = &ServerParameters{}
-		}
-		cfg.Server.AllowedIPs = strings.Split(v, ",")
+	if v := GetEnvValue(SpKeyAllowedIPS, ""); v != "" {
+		configuration.Server.AllowedIPs = strings.Split(v, ",")
 	}
 
-	return cfg
+	return configuration
 }
 
 // LoadConfig reads JSON config from file (path from PBP_TUNNEL_CONFIG or "config.json"),
 // falling back to environment-only config if file is missing or invalid.
 func LoadConfig() *AppConfig {
-	// Reload environment config each time to reflect latest env values
-	envCfg := LoadEnvConfig()
-	path := GetEnvValue("config", "config.json")
-	if path == "" {
-		return envCfg
+	envConfig := LoadEnvConfig()
+	if envConfig.Type != "" {
+		return envConfig
 	}
-	data, err := os.ReadFile(path)
+
+	configFilepath := GetEnvValue("config", "config.json")
+
+	configBytes, err := os.ReadFile(configFilepath)
 	if err != nil {
-		return envCfg
+		return envConfig
 	}
-	var fileCfg AppConfig
-	if err := json.Unmarshal(data, &fileCfg); err != nil {
+
+	var fileConfig AppConfig
+	if err := json.Unmarshal(configBytes, &fileConfig); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error parsing config file: %v\n", err)
-		return &fileCfg
+
+		return &fileConfig
 	}
-	return &fileCfg
+
+	return &fileConfig
 }
 
 // LoadClientConfig returns the current client configuration from JSON or env.
 func LoadClientConfig() *ClientParameters {
-	cfg := LoadConfig()
-	cfg.Type = "client"
-	return cfg.Client
+	configuration := LoadConfig()
+
+	if err := configuration.Client.Validate(); err != nil {
+		return nil
+	}
+
+	return configuration.Client
 }
 
 // LoadServerConfig returns the current server configuration from JSON or env.
 func LoadServerConfig() *ServerParameters {
-	cfg := LoadConfig()
-	cfg.Type = "server"
-	return cfg.Server
+	configuration := LoadConfig()
+
+	if err := configuration.Server.Validate(); err != nil {
+		return nil
+	}
+
+	return configuration.Server
 }

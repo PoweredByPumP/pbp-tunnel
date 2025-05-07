@@ -39,9 +39,6 @@ func main() {
 			if cfg.Client == nil {
 				log.Fatal("client configuration missing in config file")
 			}
-			if err := cfg.Client.Validate(); err != nil {
-				log.Fatalf("invalid client config: %v", err)
-			}
 			if err := client.Run(cfg.Client); err != nil {
 				log.Fatalf("Client error: %v", err)
 			}
@@ -50,9 +47,6 @@ func main() {
 		case "server":
 			if cfg.Server == nil {
 				log.Fatal("server configuration missing in config file")
-			}
-			if err := cfg.Server.Validate(); err != nil {
-				log.Fatalf("invalid server config: %v", err)
 			}
 			if err := server.Run(cfg.Server); err != nil {
 				log.Fatalf("Server error: %v", err)
@@ -72,26 +66,27 @@ func main() {
 	switch cmd {
 	case "client":
 		flag.Usage = util.PrintClientHelp
-		cfg := config.LoadClientConfig()
-		if err := cfg.Validate(); err != nil {
-			log.Fatalf("invalid client config: %v", err)
-		}
-		if err := client.Run(cfg); err != nil {
+
+		overrideCfg := config.LoadClientConfig()
+		err := client.Run(overrideCfg)
+
+		if err != nil {
 			log.Fatalf("Client error: %v", err)
 		}
 
 	case "server":
 		flag.Usage = util.PrintServerHelp
-		cfg := config.LoadServerConfig()
-		if err := cfg.Validate(); err != nil {
-			log.Fatalf("invalid server config: %v", err)
-		}
-		if err := server.Run(cfg); err != nil {
+
+		overrideCfg := config.LoadServerConfig()
+		err := server.Run(overrideCfg)
+
+		if err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
 
 	case "generate":
-		if err := config.GenerateConfigTemplate(); err != nil {
+		err := config.GenerateConfigTemplate()
+		if err != nil {
 			log.Fatalf("Error generating config template: %v", err)
 		}
 
