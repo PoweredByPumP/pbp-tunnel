@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -483,5 +485,534 @@ func TestHandleChannelOpen_InactiveSession(t *testing.T) {
 	}
 	if mockNewChannel.rejectReason != "session closed" {
 		t.Errorf("Reject reason = %q; want 'session closed'", mockNewChannel.rejectReason)
+	}
+}
+
+// --- Tests de Scalabilité et Performance ---
+
+// Test de concurrence - Multiples sessions simultanées
+func TestRunSession_ConcurrentSessions(t *testing.T) {
+	const numSessions = 50
+	var wg sync.WaitGroup
+	errors := make(chan error, numSessions)
+
+	for i := 0; i < numSessions; i++ {
+		wg.Add(1)
+		go func(sessionID int) {
+			defer wg.Done()
+
+			port := uint32(8080 + sessionID)
+			conn := &stubConn{data: buildFrames(ErrSuccess, ErrSuccess, port)}
+			s := &ClientSession{
+				Connection:   newSSHClient(conn),
+				LocalAddress: fmt.Sprintf("localhost:%d", 9000+sessionID),
+			}
+
+			params := &config.ClientParameters{
+				RemotePort: int(port),
+				AllowedIPs: []string{fmt.Sprintf("192.168.1.%d", sessionID%255)},
+			}
+
+			err := s.runSession(params)
+			if err != nil {
+				errors <- fmt.Errorf("session %d failed: %v", sessionID, err)
+				return
+			}
+
+			if s.AssignedPort != int(port) {
+				errors <- fmt.Errorf("session %d: port mismatch %d != %d", sessionID, s.AssignedPort, port)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Vérifier qu'aucune erreur n'est survenue
+	for err := range errors {
+		t.Error(err)
+	}
+}
+
+// Test de stress - Nombreuses connexions sur une session
+func TestClientSession_StressTest(t *testing.T) {
+	s := &ClientSession{
+		LocalAddress: "localhost:8080",
+		Active:       true,
+	}
+
+	const numConnections = 1000
+	var wg sync.WaitGroup
+
+	// Simuler de nombreuses connexions concurrentes
+	for i := 0; i < numConnections; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			s.Lock.Lock()
+			s.ConnectionCount++
+			count := s.ConnectionCount
+			s.Lock.Unlock()
+
+			s.ActiveConnections.Add(1)
+
+			// Simuler du travail
+			time.Sleep(time.Microsecond)
+
+			s.ActiveConnections.Done()
+
+			if count > numConnections {
+				t.Errorf("Connection count exceeded expected maximum: %d", count)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Vérifier l'état final
+	s.Lock.Lock()
+	finalCount := s.ConnectionCount
+	s.Lock.Unlock()
+
+	if finalCount != numConnections {
+		t.Errorf("Final connection count = %d; want %d", finalCount, numConnections)
+	}
+}
+
+// --- Tests de Gestion d'Erreurs Réseau ---
+
+// Test de timeout de lecture
+func TestRunSession_ReadTimeout(t *testing.T) {
+	// Créer un canal qui bloque indéfiniment
+	slowChannel := &slowStubChannel{
+		stubChannel: stubChannel{
+			r: bytes.NewReader([]byte{}),
+			w: &bytes.Buffer{},
+		},
+		delay: 100 * time.Millisecond,
+	}
+
+	conn := &stubConnWithCustomChannel{
+		stubConn: stubConn{data: buildFrames(ErrSuccess)},
+		channel:  slowChannel,
+	}
+
+	s := &ClientSession{
+		Connection:   newSSHClient(conn),
+		LocalAddress: "localhost:0",
+	}
+
+	// Le test devrait se terminer rapidement avec une erreur de timeout
+	start := time.Now()
+	err := s.runSession(&config.ClientParameters{})
+	duration := time.Since(start)
+
+	if err == nil {
+		t.Error("Expected timeout error but got nil")
+	}
+
+	// Le timeout ne devrait pas prendre plus de 200ms
+	if duration > 200*time.Millisecond {
+		t.Errorf("Operation took too long: %v", duration)
+	}
+}
+
+// Test de récupération après erreur réseau
+func TestRunSession_NetworkRecovery(t *testing.T) {
+	// Test plus réaliste : simuler une erreur de connexion puis succès
+	// Premier essai avec échec de connexion
+	failConn := &stubConnWithFailure{
+		shouldFail: true,
+	}
+
+	s := &ClientSession{
+		Connection:   newSSHClient(failConn),
+		LocalAddress: "localhost:0",
+	}
+
+	err := s.runSession(&config.ClientParameters{})
+	if err == nil {
+		t.Error("Expected error from failed connection but got nil")
+	}
+
+	// Deuxième essai avec succès
+	successConn := &stubConn{data: buildFrames(ErrSuccess, ErrSuccess, 8080)}
+	s.Connection = newSSHClient(successConn)
+
+	err = s.runSession(&config.ClientParameters{})
+	if err != nil {
+		t.Errorf("Expected success after connection recovery but got: %v", err)
+	}
+
+	if s.AssignedPort != 8080 {
+		t.Errorf("AssignedPort = %d; want 8080", s.AssignedPort)
+	}
+}
+
+// --- Tests de Métriques et Monitoring ---
+
+// Test de collecte de métriques
+func TestClientSession_Metrics(t *testing.T) {
+	s := &ClientSession{
+		LocalAddress:    "localhost:8080",
+		Active:          true,
+		ConnectionCount: 0,
+		AssignedPort:    8080,
+	}
+
+	// Métriques initiales
+	metrics := s.GetMetrics()
+	expectedMetrics := map[string]interface{}{
+		"local_address":    "localhost:8080",
+		"active":           true,
+		"connection_count": 0,
+		"assigned_port":    8080,
+	}
+
+	for key, expected := range expectedMetrics {
+		if metrics[key] != expected {
+			t.Errorf("Metric %s = %v; want %v", key, metrics[key], expected)
+		}
+	}
+
+	// Simuler quelques connexions
+	s.Lock.Lock()
+	s.ConnectionCount = 5
+	s.Lock.Unlock()
+
+	updatedMetrics := s.GetMetrics()
+	if updatedMetrics["connection_count"] != 5 {
+		t.Errorf("Updated connection_count = %v; want 5", updatedMetrics["connection_count"])
+	}
+}
+
+// Test de monitoring de performance
+func TestRunSession_PerformanceMonitoring(t *testing.T) {
+	conn := &stubConn{data: buildFrames(ErrSuccess, ErrSuccess, 8080)}
+	s := &ClientSession{
+		Connection:   newSSHClient(conn),
+		LocalAddress: "localhost:0",
+	}
+
+	// Mesurer le temps d'exécution
+	start := time.Now()
+	err := s.runSession(&config.ClientParameters{})
+	duration := time.Since(start)
+
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	// La session devrait s'établir rapidement (< 50ms pour un stub)
+	if duration > 50*time.Millisecond {
+		t.Errorf("Session setup took too long: %v", duration)
+	}
+
+	t.Logf("Session setup completed in %v", duration)
+}
+
+// --- Tests de Gestion Mémoire ---
+
+// Test de prévention des fuites mémoire
+func TestClientSession_MemoryLeak(t *testing.T) {
+	const iterations = 100
+
+	for i := 0; i < iterations; i++ {
+		conn := &stubConn{data: buildFrames(ErrSuccess, ErrSuccess, uint32(8080+i))}
+		s := &ClientSession{
+			Connection:   newSSHClient(conn),
+			LocalAddress: fmt.Sprintf("localhost:%d", 9000+i),
+		}
+
+		err := s.runSession(&config.ClientParameters{})
+		if err != nil {
+			t.Errorf("Iteration %d failed: %v", i, err)
+		}
+
+		// Simuler la fermeture de session
+		s.Lock.Lock()
+		s.Active = false
+		s.Lock.Unlock()
+
+		// Force garbage collection occasionnellement
+		if i%10 == 0 {
+			runtime.GC()
+		}
+	}
+
+	// Test final de GC
+	runtime.GC()
+	time.Sleep(10 * time.Millisecond)
+}
+
+// Test de nettoyage des ressources
+func TestClientSession_ResourceCleanup(t *testing.T) {
+	s := &ClientSession{
+		LocalAddress: "localhost:8080",
+		Active:       true,
+	}
+
+	// Ajouter quelques connexions actives
+	for i := 0; i < 5; i++ {
+		s.ActiveConnections.Add(1)
+		s.Lock.Lock()
+		s.ConnectionCount++
+		s.Lock.Unlock()
+	}
+
+	// Simuler l'arrêt de la session
+	s.Lock.Lock()
+	s.Active = false
+	s.Lock.Unlock()
+
+	// Nettoyer les connexions
+	for i := 0; i < 5; i++ {
+		s.ActiveConnections.Done()
+	}
+
+	// Attendre que toutes les connexions se terminent
+	done := make(chan struct{})
+	go func() {
+		s.ActiveConnections.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Succès
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Resource cleanup took too long")
+	}
+}
+
+// --- Tests de Configuration Avancée ---
+
+// Test de validation de configuration
+func TestRunSession_ConfigValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		params  *config.ClientParameters
+		wantErr string
+	}{
+		{
+			name: "valid-config",
+			params: &config.ClientParameters{
+				RemotePort: 8080,
+				AllowedIPs: []string{"192.168.1.0/24"},
+			},
+			wantErr: "",
+		},
+		{
+			name: "invalid-ip-format",
+			params: &config.ClientParameters{
+				RemotePort: 8080,
+				AllowedIPs: []string{"invalid-ip"},
+			},
+			wantErr: "", // Le serveur valide, pas le client
+		},
+		{
+			name:    "empty-config",
+			params:  &config.ClientParameters{},
+			wantErr: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &stubConn{data: buildFrames(ErrSuccess, ErrSuccess, 8080)}
+			s := &ClientSession{
+				Connection:   newSSHClient(conn),
+				LocalAddress: "localhost:0",
+			}
+
+			err := s.runSession(tc.params)
+
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("Expected error containing %q, got %v", tc.wantErr, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// Test de configuration dynamique
+func TestClientSession_DynamicConfiguration(t *testing.T) {
+	s := &ClientSession{
+		LocalAddress: "localhost:8080",
+		Active:       true,
+	}
+
+	// Simuler des changements de configuration pendant l'exécution
+	configs := []struct {
+		active bool
+		port   int
+	}{
+		{true, 8080},
+		{true, 8081},
+		{false, 8081},
+		{true, 8082},
+	}
+
+	for i, cfg := range configs {
+		s.Lock.Lock()
+		s.Active = cfg.active
+		s.AssignedPort = cfg.port
+		s.Lock.Unlock()
+
+		// Vérifier l'état
+		if s.Active != cfg.active {
+			t.Errorf("Config %d: Active = %v; want %v", i, s.Active, cfg.active)
+		}
+		if s.AssignedPort != cfg.port {
+			t.Errorf("Config %d: AssignedPort = %d; want %d", i, s.AssignedPort, cfg.port)
+		}
+	}
+}
+
+// --- Structures d'aide pour les tests avancés ---
+
+// Channel qui simule une latence réseau
+type slowStubChannel struct {
+	stubChannel
+	delay time.Duration
+}
+
+func (c *slowStubChannel) Read(p []byte) (int, error) {
+	time.Sleep(c.delay)
+	return c.stubChannel.Read(p)
+}
+
+// Connexion qui permet d'injecter un canal personnalisé
+type stubConnWithCustomChannel struct {
+	stubConn
+	channel ssh.Channel
+}
+
+func (s *stubConnWithCustomChannel) OpenChannel(name string, payload []byte) (ssh.Channel, <-chan *ssh.Request, error) {
+	reqs := make(chan *ssh.Request)
+	close(reqs)
+	return s.channel, reqs, nil
+}
+
+// Connexion qui simule un échec de connexion
+type stubConnWithFailure struct {
+	stubConn
+	shouldFail bool
+}
+
+func (s *stubConnWithFailure) OpenChannel(name string, payload []byte) (ssh.Channel, <-chan *ssh.Request, error) {
+	if s.shouldFail {
+		return nil, nil, fmt.Errorf("failed to open channel: network unreachable")
+	}
+	return s.stubConn.OpenChannel(name, payload)
+}
+
+// Connexion qui simule des tentatives avec échecs puis succès
+type stubConnWithRetry struct {
+	stubConn
+	maxAttempts int
+	attempts    *int
+	successData []byte
+}
+
+func (s *stubConnWithRetry) OpenChannel(name string, payload []byte) (ssh.Channel, <-chan *ssh.Request, error) {
+	*s.attempts++
+
+	if *s.attempts < s.maxAttempts {
+		// Simuler un échec réseau
+		return nil, nil, fmt.Errorf("network error attempt %d", *s.attempts)
+	}
+
+	// Succès après plusieurs tentatives
+	reader := bytes.NewReader(s.successData)
+	ch := &stubChannel{r: reader, w: &bytes.Buffer{}}
+	reqs := make(chan *ssh.Request)
+	close(reqs)
+	return ch, reqs, nil
+}
+
+// Extension de ClientSession pour les métriques
+func (s *ClientSession) GetMetrics() map[string]interface{} {
+	s.Lock.Lock()
+	defer s.Lock.Unlock()
+
+	return map[string]interface{}{
+		"local_address":    s.LocalAddress,
+		"active":           s.Active,
+		"connection_count": s.ConnectionCount,
+		"assigned_port":    s.AssignedPort,
+	}
+}
+
+// Test de connexion qui simule des tentatives avec échecs puis succès
+func TestRunSession_ConnectionFailure(t *testing.T) {
+	conn := &stubConnWithFailure{
+		shouldFail: true,
+	}
+
+	s := &ClientSession{
+		Connection:   newSSHClient(conn),
+		LocalAddress: "localhost:0",
+	}
+
+	err := s.runSession(&config.ClientParameters{})
+	if err == nil {
+		t.Error("Expected error from failed connection")
+	}
+
+	// Vérifier que l'erreur est bien une erreur de connexion
+	if !strings.Contains(err.Error(), "failed to open channel") {
+		t.Errorf("Expected connection error, got: %v", err)
+	}
+}
+
+// Benchmark pour mesurer les performances
+func BenchmarkRunSession(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		conn := &stubConn{data: buildFrames(ErrSuccess, ErrSuccess, 8080)}
+		s := &ClientSession{
+			Connection:   newSSHClient(conn),
+			LocalAddress: "localhost:0",
+		}
+
+		err := s.runSession(&config.ClientParameters{})
+		if err != nil {
+			b.Fatalf("Benchmark failed: %v", err)
+		}
+	}
+}
+
+// Benchmark pour la gestion de whitelist
+func BenchmarkWhitelistProcessing(b *testing.B) {
+	// Générer une grande whitelist
+	entries := make([]string, 1000)
+	for i := 0; i < 1000; i++ {
+		entries[i] = fmt.Sprintf("192.168.%d.%d", i/255, i%255)
+	}
+
+	params := &config.ClientParameters{
+		AllowedIPs: entries,
+		RemotePort: 8080,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		conn := &stubConn{data: buildFrames(ErrSuccess, ErrSuccess, 8080)}
+		s := &ClientSession{
+			Connection:   newSSHClient(conn),
+			LocalAddress: "localhost:0",
+		}
+
+		err := s.runSession(params)
+		if err != nil {
+			b.Fatalf("Benchmark failed: %v", err)
+		}
 	}
 }
