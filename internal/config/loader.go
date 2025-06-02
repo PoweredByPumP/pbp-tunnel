@@ -40,8 +40,6 @@ func LoadEnvConfig() *AppConfig {
 
 	// Client section
 	if v := GetEnvValue(CpKeyEndpoint, ""); v != "" {
-		if configuration.Client == nil {
-		}
 		configuration.Client.Endpoint = v
 	}
 	if v := GetEnvValue(CpKeyEndpointPort, strconv.Itoa(CpDefaultEndpointPort)); v != "" {
