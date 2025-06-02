@@ -1,0 +1,92 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build pbp-tunnel",
+            "type": "shell",
+            "command": "go",
+            "args": [
+                "build",
+                "-o",
+                "out/pbp-tunnel.exe",
+                "./cmd/pbp-tunnel"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$go"
+        },
+        {
+            "label": "Run pbp-tunnel client",
+            "type": "shell",
+            "command": "go",
+            "args": [
+                "run",
+                "./cmd/pbp-tunnel",
+                "client",
+                "--debug=true"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$go"
+        },
+        {
+            "label": "Run pbp-tunnel server",
+            "type": "shell",
+            "command": "go",
+            "args": [
+                "run",
+                "./cmd/pbp-tunnel",
+                "server",
+                "--debug=true"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$go"
+        },
+        {
+            "label": "Test All",
+            "type": "shell",
+            "command": "go",
+            "args": [
+                "test",
+                "./..."
+            ],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$go"
+        },
+        {
+            "label": "Clean debug files",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-Command",
+                "Get-ChildItem -Path '${workspaceFolder}/cmd/pbp-tunnel' -Name '__debug_bin*' -File | ForEach-Object { Remove-Item -Path \"${workspaceFolder}/cmd/pbp-tunnel/$_\" -Force -ErrorAction SilentlyContinue }"
+            ],
+            "presentation": {
+                "echo": false,
+                "reveal": "silent"
+            }
+        }
+    ]
+}
