@@ -1,8 +1,8 @@
 module github.com/poweredbypump/pbp-tunnel
 
-go 1.23.0
+go 1.25
 
-toolchain go1.23.7
+toolchain go1.25.1
 
 require (
 	github.com/mattn/go-isatty v0.0.20

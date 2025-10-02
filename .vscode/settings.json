@@ -1,0 +1,16 @@
+{
+    "go.toolsManagement.checkForUpdates": "local",
+    "go.useLanguageServer": true,
+    "go.formatTool": "goimports",
+    "go.lintTool": "golangci-lint",
+    "go.lintOnSave": "package",
+    "go.vetOnSave": "package",
+    "go.coverOnSave": false,
+    "go.testFlags": [
+        "-v"
+    ],
+    "go.testTimeout": "30s",
+    "files.eol": "\n",
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4
+}

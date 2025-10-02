@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -451,6 +452,485 @@ func TestIsAllowed_InvalidIPAddress(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("isAllowed(%q, %v) = %v; want %v", tc.ip, allowed, got, tc.want)
 			}
+		})
+	}
+}
+
+// --- Tests de Scalabilité et Performance ---
+
+// Test de concurrence sur l'assignation de ports
+func TestAssignPort_HighConcurrency(t *testing.T) {
+	forwards := make(map[int]struct{})
+	var lock sync.Mutex
+
+	const workers = 100
+	const requestsPerWorker = 50
+
+	var wg sync.WaitGroup
+	results := make([][]int, workers)
+	errors := make(chan error, workers*requestsPerWorker)
+
+	for i := 0; i < workers; i++ {
+		results[i] = make([]int, 0, requestsPerWorker)
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for j := 0; j < requestsPerWorker; j++ {
+				port, mask := assignPort(0, 10000, 15000, forwards, &lock)
+				if mask == 0 && port != 0 {
+					results[workerID] = append(results[workerID], port)
+				} else if mask != 0 {
+					errors <- fmt.Errorf("worker %d request %d failed with mask %d", workerID, j, mask)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Vérifier les erreurs
+	for err := range errors {
+		t.Error(err)
+	}
+
+	// Vérifier l'unicité des ports assignés
+	allPorts := make(map[int]bool)
+	totalAssigned := 0
+	for _, workerResults := range results {
+		for _, port := range workerResults {
+			if allPorts[port] {
+				t.Errorf("Port %d was assigned multiple times", port)
+			}
+			allPorts[port] = true
+			totalAssigned++
+		}
+	}
+
+	t.Logf("Successfully assigned %d unique ports across %d workers", totalAssigned, workers)
+}
+
+// Test de performance sur l'assignation de ports
+func TestAssignPort_Performance(t *testing.T) {
+	forwards := make(map[int]struct{})
+	var lock sync.Mutex
+
+	// Pré-remplir avec de nombreux ports pour tester la performance de recherche
+	for i := 1000; i < 9000; i += 2 {
+		forwards[i] = struct{}{}
+	}
+
+	start := time.Now()
+	const iterations = 1000
+
+	for i := 0; i < iterations; i++ {
+		port, mask := assignPort(0, 1000, 10000, forwards, &lock)
+		if mask != 0 {
+			t.Errorf("Iteration %d failed with mask %d", i, mask)
+		}
+		if port == 0 {
+			t.Errorf("Iteration %d returned invalid port 0", i)
+		}
+	}
+
+	duration := time.Since(start)
+	avgTime := duration / iterations
+
+	t.Logf("Average port assignment time: %v", avgTime)
+	if avgTime > time.Millisecond {
+		t.Logf("Warning: Port assignment is slow (%v per operation)", avgTime)
+	}
+}
+
+// Test de stress sur processHandshake
+func TestProcessHandshake_StressTest(t *testing.T) {
+	const numGoroutines = 50
+	const requestsPerGoroutine = 20
+
+	var wg sync.WaitGroup
+	errors := make(chan error, numGoroutines*requestsPerGoroutine)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			for j := 0; j < requestsPerGoroutine; j++ {
+				// Créer une whitelist avec des entrées variables
+				entries := make([]string, goroutineID%10+1)
+				for k := range entries {
+					entries[k] = fmt.Sprintf("192.168.%d.%d", goroutineID, k)
+				}
+
+				rw := newStubRW(entries, -1)
+				_, err := processHandshake(rw, "192.168.1.1", []string{})
+
+				if err != nil {
+					errors <- fmt.Errorf("goroutine %d request %d failed: %v", goroutineID, j, err)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Vérifier les erreurs
+	for err := range errors {
+		t.Error(err)
+	}
+}
+
+// Test de performance sur isAllowed avec cache simulation
+func TestIsAllowed_PerformanceWithCaching(t *testing.T) {
+	// Simuler un cache simple
+	cache := make(map[string]bool)
+	var cacheMutex sync.RWMutex
+
+	// Fonction isAllowed avec cache
+	isAllowedWithCache := func(ip string, allowed []string) bool {
+		cacheMutex.RLock()
+		if result, exists := cache[ip]; exists {
+			cacheMutex.RUnlock()
+			return result
+		}
+		cacheMutex.RUnlock()
+
+		result := isAllowed(ip, allowed)
+
+		cacheMutex.Lock()
+		cache[ip] = result
+		cacheMutex.Unlock()
+
+		return result
+	}
+
+	// Créer une grande liste d'IPs autorisées
+	allowed := make([]string, 1000)
+	for i := 0; i < 1000; i++ {
+		allowed[i] = fmt.Sprintf("192.168.%d.0/24", i%256)
+	}
+
+	// Test de performance sans cache
+	start := time.Now()
+	for i := 0; i < 1000; i++ {
+		testIP := fmt.Sprintf("192.168.%d.100", i%256)
+		isAllowed(testIP, allowed)
+	}
+	durationWithoutCache := time.Since(start)
+
+	// Test de performance avec cache
+	start = time.Now()
+	for i := 0; i < 1000; i++ {
+		testIP := fmt.Sprintf("192.168.%d.100", i%256)
+		isAllowedWithCache(testIP, allowed)
+	}
+	durationWithCache := time.Since(start)
+
+	t.Logf("Performance without cache: %v", durationWithoutCache)
+	t.Logf("Performance with cache: %v", durationWithCache)
+
+	if durationWithCache > durationWithoutCache {
+		t.Logf("Note: Cache overhead detected for small datasets")
+	}
+}
+
+// --- Tests de Gestion d'Erreurs et Robustesse ---
+
+// Test de gestion d'erreurs en cascade
+func TestProcessHandshake_ErrorRecovery(t *testing.T) {
+	// Test avec différents types d'erreurs
+	errorCases := []struct {
+		name        string
+		entries     []string
+		errorAfter  int
+		expectedErr string
+	}{
+		{"count-read-error", []string{"test"}, 0, "read whitelist count"},
+		{"length-read-error", []string{"test"}, 1, "read whitelist entry length"},
+		{"entry-read-error", []string{"test"}, 2, "read whitelist entry"},
+	}
+
+	for _, tc := range errorCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rw := newStubRW(tc.entries, tc.errorAfter)
+			_, err := processHandshake(rw, "127.0.0.1", []string{})
+
+			if err == nil {
+				t.Errorf("Expected error for case %s", tc.name)
+			} else if !strings.Contains(err.Error(), tc.expectedErr) {
+				t.Errorf("Expected error containing %q, got %q", tc.expectedErr, err.Error())
+			}
+		})
+	}
+}
+
+// Test de validation robuste des IPs
+func TestIsAllowed_RobustIPValidation(t *testing.T) {
+	// Test avec des entrées malformées qui pourraient causer des paniques
+	malformedEntries := []string{
+		"300.300.300.300",
+		"192.168.1",
+		"192.168.1.1/33", // CIDR invalide
+		"",
+		"invalid-string",
+		"::1", // IPv6 (pas encore supporté)
+		"192.168.1.1/",
+		"/24",
+		"192.168.1.1/-1",
+	}
+
+	testIPs := []string{
+		"192.168.1.1",
+		"10.0.0.1",
+		"invalid-ip",
+		"",
+	}
+
+	for _, entry := range malformedEntries {
+		for _, testIP := range testIPs {
+			// Ne devrait pas paniquer même avec des entrées malformées
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Errorf("Panic with entry %q and IP %q: %v", entry, testIP, r)
+					}
+				}()
+				isAllowed(testIP, []string{entry})
+			}()
+		}
+	}
+}
+
+// Test de limite de mémoire sur processHandshake
+func TestProcessHandshake_MemoryLimits(t *testing.T) {
+	// Test avec des entrées très longues
+	veryLongEntry := strings.Repeat("a", 10000) + ".example.com"
+	entries := []string{veryLongEntry}
+
+	rw := newStubRW(entries, -1)
+	result, err := processHandshake(rw, "127.0.0.1", []string{})
+
+	if err != nil {
+		t.Errorf("processHandshake failed with long entry: %v", err)
+	}
+
+	if len(result) != 1 || result[0] != veryLongEntry {
+		t.Errorf("Long entry was not preserved correctly")
+	}
+}
+
+// --- Tests de Monitoring et Métriques ---
+
+// Test de collecte de statistiques sur assignPort
+func TestAssignPort_Statistics(t *testing.T) {
+	forwards := make(map[int]struct{})
+	var lock sync.Mutex
+
+	stats := struct {
+		successful int
+		failed     int
+		totalTime  time.Duration
+		mutex      sync.Mutex
+	}{}
+
+	const numRequests = 1000
+
+	for i := 0; i < numRequests; i++ {
+		start := time.Now()
+		port, mask := assignPort(0, 1000, 2000, forwards, &lock)
+		duration := time.Since(start)
+
+		stats.mutex.Lock()
+		stats.totalTime += duration
+		if mask == 0 && port != 0 {
+			stats.successful++
+		} else {
+			stats.failed++
+		}
+		stats.mutex.Unlock()
+	}
+
+	stats.mutex.Lock()
+	avgTime := stats.totalTime / time.Duration(numRequests)
+	successRate := float64(stats.successful) / float64(numRequests) * 100
+	stats.mutex.Unlock()
+
+	t.Logf("Port assignment statistics:")
+	t.Logf("  Successful: %d/%d (%.1f%%)", stats.successful, numRequests, successRate)
+	t.Logf("  Failed: %d/%d", stats.failed, numRequests)
+	t.Logf("  Average time: %v", avgTime)
+
+	if successRate < 90 {
+		t.Errorf("Success rate too low: %.1f%%", successRate)
+	}
+}
+
+// Test de monitoring des ressources
+func TestProcessHandshake_ResourceMonitoring(t *testing.T) {
+	const numIterations = 100
+
+	for i := 0; i < numIterations; i++ {
+		// Créer des données de test variables
+		entries := make([]string, i%20+1)
+		for j := range entries {
+			entries[j] = fmt.Sprintf("192.168.%d.%d", i, j)
+		}
+
+		rw := newStubRW(entries, -1)
+		start := time.Now()
+
+		result, err := processHandshake(rw, "192.168.1.1", []string{})
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("Iteration %d failed: %v", i, err)
+		}
+
+		if len(result) != len(entries) {
+			t.Errorf("Iteration %d: expected %d entries, got %d", i, len(entries), len(result))
+		}
+
+		// Surveiller les performances
+		if duration > 10*time.Millisecond {
+			t.Logf("Iteration %d took %v (entries: %d)", i, duration, len(entries))
+		}
+
+		// Force GC occasionnellement
+		if i%10 == 0 {
+			runtime.GC()
+		}
+	}
+}
+
+// --- Tests de Configuration et Limites ---
+
+// Test de limites de configuration
+func TestAssignPort_ConfigurationLimits(t *testing.T) {
+	tests := []struct {
+		name      string
+		reqPort   int
+		start     int
+		end       int
+		expectErr bool
+	}{
+		{"normal-range", 0, 1000, 2000, false},
+		{"single-port-range", 0, 1000, 1000, false},
+		{"invalid-range-reversed", 0, 2000, 1000, true},
+		{"negative-start", 0, -1, 1000, false},
+		{"out-of-bounds-end", 0, 1000, 70000, false},
+		{"port-1", 1, 1, 65535, false},
+		{"port-65535", 65535, 1, 65535, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			forwards := make(map[int]struct{})
+			var lock sync.Mutex
+
+			port, mask := assignPort(tc.reqPort, tc.start, tc.end, forwards, &lock)
+
+			hasError := (mask & ErrMask) != 0
+			if tc.expectErr != hasError {
+				t.Errorf("Expected error: %v, got error: %v (mask: %d)", tc.expectErr, hasError, mask)
+			}
+
+			if !tc.expectErr && port == 0 {
+				t.Errorf("Expected valid port assignment, got 0")
+			}
+		})
+	}
+}
+
+// Test de comportement avec whitelist volumineuse
+func TestProcessHandshake_LargeWhitelist(t *testing.T) {
+	// Créer une très grande whitelist
+	const numEntries = 5000
+	entries := make([]string, numEntries)
+	for i := 0; i < numEntries; i++ {
+		entries[i] = fmt.Sprintf("192.168.%d.%d", i/256, i%256)
+	}
+
+	rw := newStubRW(entries, -1)
+	start := time.Now()
+
+	result, err := processHandshake(rw, "192.168.1.1", []string{})
+	duration := time.Since(start)
+
+	if err != nil {
+		t.Errorf("Large whitelist processing failed: %v", err)
+	}
+
+	if len(result) != numEntries {
+		t.Errorf("Expected %d entries, got %d", numEntries, len(result))
+	}
+
+	t.Logf("Processed %d whitelist entries in %v", numEntries, duration)
+
+	// Vérifier que le traitement reste raisonnable
+	if duration > 100*time.Millisecond {
+		t.Logf("Warning: Large whitelist processing is slow (%v)", duration)
+	}
+}
+
+// --- Structures d'aide pour les tests avancés ---
+
+// stubRW étendu pour simuler des conditions réseau variables
+type variableStubRW struct {
+	*stubRW
+	latency time.Duration
+}
+
+func (v *variableStubRW) Read(p []byte) (int, error) {
+	if v.latency > 0 {
+		time.Sleep(v.latency)
+	}
+	return v.stubRW.Read(p)
+}
+
+func (v *variableStubRW) Write(p []byte) (int, error) {
+	if v.latency > 0 {
+		time.Sleep(v.latency / 2) // Écriture généralement plus rapide
+	}
+	return v.stubRW.Write(p)
+}
+
+// Test avec latence réseau simulée
+func TestProcessHandshake_NetworkLatency(t *testing.T) {
+	entries := []string{"192.168.1.1", "10.0.0.0/8"}
+
+	latencies := []time.Duration{
+		0,
+		1 * time.Millisecond,
+		5 * time.Millisecond,
+		10 * time.Millisecond,
+	}
+
+	for _, latency := range latencies {
+		t.Run(fmt.Sprintf("latency-%v", latency), func(t *testing.T) {
+			rw := &variableStubRW{
+				stubRW:  newStubRW(entries, -1),
+				latency: latency,
+			}
+
+			start := time.Now()
+			result, err := processHandshake(rw, "192.168.1.1", []string{})
+			duration := time.Since(start)
+
+			if err != nil {
+				t.Errorf("processHandshake with latency %v failed: %v", latency, err)
+			}
+
+			if len(result) != len(entries) {
+				t.Errorf("Expected %d entries, got %d", len(entries), len(result))
+			}
+
+			expectedMinDuration := latency * time.Duration(len(entries)+1) // +1 pour le count
+			if duration < expectedMinDuration {
+				t.Errorf("Duration %v is less than expected minimum %v", duration, expectedMinDuration)
+			}
+
+			t.Logf("Latency %v: processed in %v", latency, duration)
 		})
 	}
 }
