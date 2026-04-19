@@ -89,7 +89,7 @@ func TestAskInt_DefaultAndCustom(t *testing.T) {
 
 func TestGenerateConfigTemplate_ClientDefaults(t *testing.T) {
 	// All blank inputs to use defaults
-	inputs := strings.Repeat("\n", 11)
+	inputs := strings.Repeat("\n", 12)
 	dir := makeTempDir(t)
 
 	oldWd, _ := os.Getwd()
@@ -131,6 +131,9 @@ func TestGenerateConfigTemplate_ClientDefaults(t *testing.T) {
 	}
 	if cfg.Client.LocalPort != 8080 {
 		t.Errorf("LocalPort = %d; want %d", cfg.Client.LocalPort, 8080)
+	}
+	if cfg.Client.Protocol != "tcp" {
+		t.Errorf("Protocol = %q; want %q", cfg.Client.Protocol, "tcp")
 	}
 }
 
