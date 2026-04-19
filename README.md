@@ -12,6 +12,7 @@ assignment, IP whitelisting, and automatic cleanup on client disconnection.
 * 🔁 **Reverse tunneling**: Expose local services through the server
 * 🧠 **Automatic reconnection**: Client auto-retries on disconnection (//FIXME)
 * 🔄 **Dynamic port assignment**: Server allocates or respects requested ports
+* 🔀 **Protocol selection**: Choose `tcp` (default) or `udp` forwarding per client
 * 🚧 **IP whitelisting**: Restrict which peers can connect to forwarded ports
 * 🔌 **Multi-connection support**: Each incoming connection uses its own SSH channel
 * 🛠️ **Configurable**: JSON config file (with `generate` mode), flags or environment variables
@@ -105,6 +106,7 @@ With flags:
   --local-port 8080 \
   --remote-host localhost \
   --remote-port 0 \
+  --protocol tcp \
   --host-key-level 2 \
   --host-key ./host_key.pub
 ```
@@ -150,7 +152,8 @@ Create a `config.json` alongside the binary:
     "local_host": "localhost",
     "local_port": 8080,
     "remote_host": "localhost",
-    "remote_port": 0
+    "remote_port": 0,
+    "protocol": "tcp"
   }
 }
 ```
@@ -176,6 +179,7 @@ All settings can be overridden via environment variables prefixed `PBP_TUNNEL_`.
 | `PBP_TUNNEL_LOCAL_PORT`           | Local service port (client mode)           |
 | `PBP_TUNNEL_REMOTE_HOST`          | Remote host to expose (client mode)        |
 | `PBP_TUNNEL_REMOTE_PORT`          | Remote port to request (0 for dynamic)     |
+| `PBP_TUNNEL_PROTOCOL`             | Forward protocol: `tcp` (default) or `udp` |
 | `PBP_TUNNEL_BIND`                 | Server bind address                        |
 | `PBP_TUNNEL_BIND_PORT`            | Server listen port                         |
 | `PBP_TUNNEL_PORT_RANGE_START`     | Start of server port range                 |

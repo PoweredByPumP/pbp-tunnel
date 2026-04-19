@@ -35,6 +35,7 @@ func TestClientParametersValidate(t *testing.T) {
 			LocalPort:    8080,
 			RemoteHost:   "remote",
 			RemotePort:   9090,
+			Protocol:     "udp",
 		}, false, ""},
 		{"missing-endpoint", &ClientParameters{
 			Endpoint:     "",
@@ -117,6 +118,17 @@ func TestClientParametersValidate(t *testing.T) {
 			RemoteHost:   "remote",
 			RemotePort:   70000,
 		}, true, "remote_port must be between 0 and 65535"},
+		{"invalid-protocol", &ClientParameters{
+			Endpoint:     "example.com",
+			EndpointPort: 22,
+			Username:     "user",
+			Password:     "pass",
+			LocalHost:    "localhost",
+			LocalPort:    8080,
+			RemoteHost:   "remote",
+			RemotePort:   9090,
+			Protocol:     "icmp",
+		}, true, "protocol must be either tcp or udp"},
 	}
 	for _, tc := range tests {
 		err := tc.cp.Validate()

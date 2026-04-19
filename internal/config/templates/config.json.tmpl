@@ -9,7 +9,8 @@
     "local_host": "{{ .Client.LocalHost }}",
     "local_port": {{ .Client.LocalPort }},
     "remote_host": "{{ .Client.RemoteHost }}",
-    "remote_port": {{ .Client.RemotePort }}
+    "remote_port": {{ .Client.RemotePort }},
+    "protocol": "{{ .Client.Protocol }}"
   }{{ end }}{{ if .Server }},
   "server": {
     "bind": "{{ .Server.BindAddress }}",
