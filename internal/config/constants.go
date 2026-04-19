@@ -22,6 +22,7 @@ const (
 	CpKeyLocalPort      string = "local-port"
 	CpKeyRemoteHost     string = "remote-host"
 	CpKeyRemotePort     string = "remote-port"
+	CpKeyProtocol       string = "protocol"
 	CpKeyHostKeyLevel   string = "host-key-level"
 	CpKeyAllowedIPs     string = "allowed-ips"
 
@@ -35,6 +36,7 @@ const (
 	CpDefaultLocalPort      int    = 80
 	CpDefaultRemoteHost     string = "localhost"
 	CpDefaultRemotePort     int    = 0
+	CpDefaultProtocol       string = "tcp"
 	CpDefaultHostKeyLevel   int    = 2
 
 	SpKeyBindAddress        string = "bind"
@@ -98,6 +100,7 @@ type ClientParameters struct {
 	LocalPort      int         `json:"local_port,omitempty"`
 	RemoteHost     string      `json:"remote_host,omitempty"`
 	RemotePort     int         `json:"remote_port,omitempty"`
+	Protocol       string      `json:"protocol,omitempty"`
 	HostKeyLevel   int         `json:"host_key_level,omitempty"`
 	AllowedIPs     StringArray `json:"allowed_ips,omitempty"`
 }
@@ -127,6 +130,13 @@ func (cp *ClientParameters) Validate() error {
 	}
 	if cp.RemotePort < 0 || cp.RemotePort > 65535 {
 		return fmt.Errorf("remote_port must be between 0 and 65535")
+	}
+	if cp.Protocol == "" {
+		cp.Protocol = CpDefaultProtocol
+	}
+	cp.Protocol = strings.ToLower(cp.Protocol)
+	if cp.Protocol != "tcp" && cp.Protocol != "udp" {
+		return fmt.Errorf("protocol must be either tcp or udp")
 	}
 	return nil
 }

@@ -16,12 +16,13 @@ import (
 )
 
 const (
-	ErrSuccess         uint32 = 0
-	ErrPortUnavailable uint32 = 1
-	ErrIPNotAllowed    uint32 = 2
-	ErrPortOutOfRange  uint32 = 3
-	ErrInternal        uint32 = 4
-	ErrMask            uint32 = 0x80000000
+	ErrSuccess             uint32 = 0
+	ErrPortUnavailable     uint32 = 1
+	ErrIPNotAllowed        uint32 = 2
+	ErrPortOutOfRange      uint32 = 3
+	ErrInternal            uint32 = 4
+	ErrUnsupportedProtocol uint32 = 5
+	ErrMask                uint32 = 0x80000000
 )
 
 // ClientSession holds state for a running SSH tunnel session
@@ -50,6 +51,7 @@ func Run(cpOverride *config.ClientParameters) error {
 		flag.IntVar(&cp.LocalPort, config.CpKeyLocalPort, config.CpDefaultLocalPort, "Local port to forward")
 		flag.StringVar(&cp.RemoteHost, config.CpKeyRemoteHost, config.CpDefaultRemoteHost, "Remote host to expose (unused)")
 		flag.IntVar(&cp.RemotePort, config.CpKeyRemotePort, config.CpDefaultRemotePort, "Remote port to request (0 = random)")
+		flag.StringVar(&cp.Protocol, config.CpKeyProtocol, config.CpDefaultProtocol, "Forwarding protocol (tcp|udp)")
 		flag.IntVar(&cp.HostKeyLevel, config.CpKeyHostKeyLevel, config.CpDefaultHostKeyLevel, "Host key level (0=no check,1=warn,2=strict)")
 		flag.Var(&cp.AllowedIPs, config.CpKeyAllowedIPs, "Allowed IPs (comma-separated)")
 		flag.Parse()
@@ -164,6 +166,16 @@ func (s *ClientSession) runSession(cp *config.ClientParameters) error {
 	log.Printf("[+] Whitelist accepted by server")
 
 	// 5) Request port
+	protocol := normalizeProtocol(cp.Protocol)
+	log.Printf("[*] Requested protocol: %s", protocol)
+	binary.BigEndian.PutUint32(hb[:], uint32(len(protocol)))
+	if _, err := ch.Write(hb[:]); err != nil {
+		return fmt.Errorf("send protocol length: %w", err)
+	}
+	if _, err := ch.Write([]byte(protocol)); err != nil {
+		return fmt.Errorf("send protocol value: %w", err)
+	}
+
 	log.Printf("[*] Requesting remote port %d", cp.RemotePort)
 	binary.BigEndian.PutUint32(hb[:], uint32(cp.RemotePort))
 	if _, err := ch.Write(hb[:]); err != nil {
@@ -184,6 +196,8 @@ func (s *ClientSession) runSession(cp *config.ClientParameters) error {
 			return fmt.Errorf("server: port out of range")
 		case ErrInternal:
 			return fmt.Errorf("server: internal error")
+		case ErrUnsupportedProtocol:
+			return fmt.Errorf("server: unsupported protocol")
 		default:
 			return fmt.Errorf("server error code %d", errCode)
 		}
@@ -212,7 +226,11 @@ func (s *ClientSession) runSession(cp *config.ClientParameters) error {
 
 			s.ActiveConnections.Add(1)
 			log.Printf("[*] Forward #%d incoming", id)
-			go s.handleForward(ch2, id)
+			if protocol == "udp" {
+				go s.handleForwardUDP(ch2, id)
+			} else {
+				go s.handleForwardTCP(ch2, id)
+			}
 		}
 	}()
 
@@ -221,7 +239,7 @@ func (s *ClientSession) runSession(cp *config.ClientParameters) error {
 }
 
 // handleForward manages a single forwarded connection
-func (s *ClientSession) handleForward(ch ssh.Channel, id int) {
+func (s *ClientSession) handleForwardTCP(ch ssh.Channel, id int) {
 	defer ch.Close()
 	defer s.ActiveConnections.Done()
 
@@ -248,4 +266,101 @@ func (s *ClientSession) handleForward(ch ssh.Channel, id int) {
 	}()
 	wg.Wait()
 	log.Printf("[+] Forward #%d closed", id)
+}
+
+func (s *ClientSession) handleForwardUDP(ch ssh.Channel, id int) {
+	defer ch.Close()
+	defer s.ActiveConnections.Done()
+
+	localAddr, err := net.ResolveUDPAddr("udp", s.LocalAddress)
+	if err != nil {
+		log.Printf("[-] Resolve local UDP %s: %v", s.LocalAddress, err)
+		return
+	}
+
+	localConn, err := net.DialUDP("udp", nil, localAddr)
+	if err != nil {
+		log.Printf("[-] Connect to local UDP %s: %v", s.LocalAddress, err)
+		return
+	}
+	defer localConn.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		defer localConn.Close()
+		for {
+			packet, err := readFramedPacket(ch)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("[-] UDP read from server for forward #%d: %v", id, err)
+				}
+				return
+			}
+			if _, err := localConn.Write(packet); err != nil {
+				log.Printf("[-] UDP write to local for forward #%d: %v", id, err)
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 64*1024)
+		for {
+			n, err := localConn.Read(buf)
+			if err != nil {
+				if !strings.Contains(err.Error(), "closed") {
+					log.Printf("[-] UDP read from local for forward #%d: %v", id, err)
+				}
+				return
+			}
+			if err := writeFramedPacket(ch, buf[:n]); err != nil {
+				log.Printf("[-] UDP write to server for forward #%d: %v", id, err)
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	log.Printf("[+] UDP forward #%d closed", id)
+}
+
+func normalizeProtocol(protocol string) string {
+	p := strings.ToLower(strings.TrimSpace(protocol))
+	if p == "udp" {
+		return "udp"
+	}
+	return "tcp"
+}
+
+func writeFramedPacket(w io.Writer, payload []byte) error {
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(payload)))
+	if _, err := w.Write(lenBuf[:]); err != nil {
+		return err
+	}
+	if len(payload) == 0 {
+		return nil
+	}
+	_, err := w.Write(payload)
+	return err
+}
+
+func readFramedPacket(r io.Reader) ([]byte, error) {
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(lenBuf[:])
+	payload := make([]byte, length)
+	if length == 0 {
+		return payload, nil
+	}
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }

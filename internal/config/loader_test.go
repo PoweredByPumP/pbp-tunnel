@@ -2,10 +2,11 @@ package config
 
 import (
 	"encoding/json"
-	"github.com/poweredbypump/pbp-tunnel/internal/util"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/poweredbypump/pbp-tunnel/internal/util"
 )
 
 func TestGetEnvValue(t *testing.T) {
@@ -25,6 +26,7 @@ func TestLoadEnvConfig(t *testing.T) {
 	t.Setenv("PBP_TUNNEL_ENDPOINT", "ex.com")
 	t.Setenv("PBP_TUNNEL_PORT", "2222")
 	t.Setenv("PBP_TUNNEL_LOCAL_HOST", "localhost")
+	t.Setenv("PBP_TUNNEL_PROTOCOL", "udp")
 	t.Setenv("PBP_TUNNEL_BIND", "0.0.0.0")
 	t.Setenv("PBP_TUNNEL_PORT_RANGE_START", "1000")
 	t.Setenv("PBP_TUNNEL_PORT_RANGE_END", "2000")
@@ -38,6 +40,9 @@ func TestLoadEnvConfig(t *testing.T) {
 	}
 	if cfg.Client.EndpointPort != 2222 {
 		t.Errorf("Client.EndpointPort = %d; want %d", cfg.Client.EndpointPort, 2222)
+	}
+	if cfg.Client.Protocol != "udp" {
+		t.Errorf("Client.Protocol = %q; want %q", cfg.Client.Protocol, "udp")
 	}
 	if cfg.Server == nil {
 		t.Fatal("Expected server config, got nil")
@@ -114,6 +119,7 @@ func TestLoadClientConfig_ValidComplete(t *testing.T) {
 	t.Setenv("PBP_TUNNEL_LOCAL_PORT", "8080")
 	t.Setenv("PBP_TUNNEL_REMOTE_HOST", "localhost")
 	t.Setenv("PBP_TUNNEL_REMOTE_PORT", "8081")
+	t.Setenv("PBP_TUNNEL_PROTOCOL", "udp")
 	t.Setenv("PBP_TUNNEL_HOST_KEY_LEVEL", "0")
 
 	clientCfg := LoadClientConfig()
@@ -143,6 +149,9 @@ func TestLoadClientConfig_ValidComplete(t *testing.T) {
 		}
 		if clientCfg.RemotePort != 8081 {
 			t.Errorf("LoadClientConfig: RemotePort = %d; want %d", clientCfg.RemotePort, 8081)
+		}
+		if clientCfg.Protocol != "udp" {
+			t.Errorf("LoadClientConfig: Protocol = %q; want %q", clientCfg.Protocol, "udp")
 		}
 		if clientCfg.HostKeyLevel != 0 {
 			t.Errorf("LoadClientConfig: HostKeyLevel = %d; want %d", clientCfg.HostKeyLevel, 0)

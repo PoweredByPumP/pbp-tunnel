@@ -75,6 +75,9 @@ func LoadEnvConfig() *AppConfig {
 			configuration.Client.RemotePort = p
 		}
 	}
+	if v := GetEnvValue(CpKeyProtocol, CpDefaultProtocol); v != "" {
+		configuration.Client.Protocol = v
+	}
 	if v := GetEnvValue(CpKeyHostKeyLevel, strconv.Itoa(CpDefaultHostKeyLevel)); v != "" {
 		if lvl, err := strconv.Atoi(v); err == nil {
 			configuration.Client.HostKeyLevel = lvl
