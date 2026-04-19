@@ -16,12 +16,13 @@ import (
 )
 
 const (
-	ErrSuccess         uint32 = 0
-	ErrPortUnavailable uint32 = 1
-	ErrIPNotAllowed    uint32 = 2
-	ErrPortOutOfRange  uint32 = 3
-	ErrInternal        uint32 = 4
-	ErrMask            uint32 = 0x80000000
+	ErrSuccess             uint32 = 0
+	ErrPortUnavailable     uint32 = 1
+	ErrIPNotAllowed        uint32 = 2
+	ErrPortOutOfRange      uint32 = 3
+	ErrInternal            uint32 = 4
+	ErrUnsupportedProtocol uint32 = 5
+	ErrMask                uint32 = 0x80000000
 )
 
 type ForwardServer struct {
@@ -150,15 +151,40 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 	}
 	log.Printf("[+] Whitelist accepted: %v", clientWL)
 
-	// 2) Read requested port
+	// 2) Read protocol
+	if _, err := io.ReadFull(channel, hb[:]); err != nil {
+		log.Printf("[-] Read protocol length failed: %v", err)
+		return
+	}
+	protocolLen := int(binary.BigEndian.Uint32(hb[:]))
+	if protocolLen <= 0 || protocolLen > 16 {
+		binary.BigEndian.PutUint32(hb[:], ErrMask|ErrUnsupportedProtocol)
+		channel.Write(hb[:])
+		log.Printf("[-] Invalid protocol length: %d", protocolLen)
+		return
+	}
+	protocolBytes := make([]byte, protocolLen)
+	if _, err := io.ReadFull(channel, protocolBytes); err != nil {
+		log.Printf("[-] Read protocol failed: %v", err)
+		return
+	}
+	protocol := strings.ToLower(strings.TrimSpace(string(protocolBytes)))
+	if protocol != "tcp" && protocol != "udp" {
+		binary.BigEndian.PutUint32(hb[:], ErrMask|ErrUnsupportedProtocol)
+		channel.Write(hb[:])
+		log.Printf("[-] Unsupported protocol requested: %q", protocol)
+		return
+	}
+
+	// 3) Read requested port
 	if _, err := io.ReadFull(channel, hb[:]); err != nil {
 		log.Printf("[-] Read requested port failed: %v", err)
 		return
 	}
 	reqPort := int(binary.BigEndian.Uint32(hb[:]))
-	log.Printf("[*] Client requested port %d", reqPort)
+	log.Printf("[*] Client requested protocol=%s port=%d", protocol, reqPort)
 
-	// 3) Assign port
+	// 4) Assign port
 	port, mask := assignPort(reqPort, s.portRangeStart, s.portRangeEnd, s.forwards, &s.lock)
 	if mask != 0 {
 		binary.BigEndian.PutUint32(hb[:], mask)
@@ -168,22 +194,37 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 	}
 	log.Printf("[+] Assigned port %d", port)
 
-	// 4) Bind listener for forwarded connections
+	// 5) Serve until client disconnects
+	if protocol == "udp" {
+		s.serveUDPForward(sshConn, channel, clientWL, port)
+	} else {
+		s.serveTCPForward(sshConn, channel, clientWL, port)
+	}
+
+	log.Printf("[*] Waiting for lock to release port %d", port)
+	s.lock.Lock()
+
+	log.Printf("[*] Client disconnected, freed port %d", port)
+	delete(s.forwards, port)
+
+	s.lock.Unlock()
+}
+
+func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Channel, clientWL []string, port int) {
+	var hb [4]byte
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.bindAddress, port))
 	if err != nil {
 		binary.BigEndian.PutUint32(hb[:], ErrMask|ErrInternal)
 		channel.Write(hb[:])
-		log.Printf("[-] Bind port %d failed: %v", port, err)
+		log.Printf("[-] Bind TCP port %d failed: %v", port, err)
 		return
 	}
 	defer ln.Close()
 
-	// 5) Notify client of assigned port
 	binary.BigEndian.PutUint32(hb[:], uint32(port))
 	channel.Write(hb[:])
-	log.Printf("[+] Notified client of port %d", port)
+	log.Printf("[+] Notified client of TCP port %d", port)
 
-	// 6) Serve until client disconnects
 	done := make(chan struct{})
 	go func() {
 		_ = sshConn.Wait()
@@ -198,34 +239,18 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 		if err != nil {
 			select {
 			case <-done:
-				// client disconnected
 				goto RELEASE
-
 			default:
 				log.Printf("[-] Forward accept error: %v", err)
 				if strings.Contains(err.Error(), "use of closed network connection") {
-					// listener closed
 					doWaitForConnection = false
 				}
-
 				goto RELEASE
 			}
 		}
-		// whitelist forwarded peer
+
 		peer, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-		accepted := len(clientWL) == 0
-		for _, entry := range clientWL {
-			if strings.Contains(entry, "/") {
-				if _, cidr, err := net.ParseCIDR(entry); err == nil && cidr.Contains(net.ParseIP(peer)) {
-					accepted = true
-					break
-				}
-			} else if entry == peer {
-				accepted = true
-				break
-			}
-		}
-		if !accepted {
+		if !peerAllowed(peer, clientWL) {
 			log.Printf("[-] Connection from %s rejected by whitelist", peer)
 			conn.Close()
 			continue
@@ -245,14 +270,12 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 
 			var cc sync.WaitGroup
 			cc.Add(2)
-			// service -> client
 			go func() {
 				defer cc.Done()
 				n, _ := io.Copy(ch2, c)
 				log.Printf("[*] Copied %d bytes to client for forward %d", n, idx)
 				ch2.CloseWrite()
 			}()
-			// client -> service
 			go func() {
 				defer cc.Done()
 				n, _ := io.Copy(c, ch2)
@@ -260,21 +283,162 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 			}()
 			cc.Wait()
 			log.Printf("[+] Forward %d closed", idx)
-		}(conn, port)
+		}(conn, id)
 	}
 
 RELEASE:
 	if doWaitForConnection {
 		wg.Wait()
 	}
+}
 
-	log.Printf("[*] Waiting for lock to release port %d", port)
-	s.lock.Lock()
+func (s *ForwardServer) serveUDPForward(sshConn *ssh.ServerConn, channel ssh.Channel, clientWL []string, port int) {
+	var hb [4]byte
+	pc, err := net.ListenPacket("udp", fmt.Sprintf("%s:%d", s.bindAddress, port))
+	if err != nil {
+		binary.BigEndian.PutUint32(hb[:], ErrMask|ErrInternal)
+		channel.Write(hb[:])
+		log.Printf("[-] Bind UDP port %d failed: %v", port, err)
+		return
+	}
+	defer pc.Close()
 
-	log.Printf("[*] Client disconnected, freed port %d", port)
-	delete(s.forwards, port)
+	binary.BigEndian.PutUint32(hb[:], uint32(port))
+	channel.Write(hb[:])
+	log.Printf("[+] Notified client of UDP port %d", port)
 
-	s.lock.Unlock()
+	done := make(chan struct{})
+	go func() {
+		_ = sshConn.Wait()
+		pc.Close()
+		close(done)
+	}()
+
+	type udpPeerSession struct {
+		ch ssh.Channel
+	}
+
+	sessions := make(map[string]*udpPeerSession)
+	var sessionsLock sync.Mutex
+
+	closeSession := func(key string) {
+		sessionsLock.Lock()
+		sess, ok := sessions[key]
+		if ok {
+			delete(sessions, key)
+		}
+		sessionsLock.Unlock()
+		if ok {
+			sess.ch.Close()
+		}
+	}
+
+	buf := make([]byte, 64*1024)
+	for {
+		n, peerAddr, err := pc.ReadFrom(buf)
+		if err != nil {
+			select {
+			case <-done:
+				sessionsLock.Lock()
+				for key, sess := range sessions {
+					delete(sessions, key)
+					sess.ch.Close()
+				}
+				sessionsLock.Unlock()
+				return
+			default:
+				log.Printf("[-] UDP read failed on port %d: %v", port, err)
+				continue
+			}
+		}
+
+		peerHost, _, splitErr := net.SplitHostPort(peerAddr.String())
+		if splitErr != nil || !peerAllowed(peerHost, clientWL) {
+			continue
+		}
+
+		key := peerAddr.String()
+		sessionsLock.Lock()
+		sess, ok := sessions[key]
+		if !ok {
+			ch2, reqs3, openErr := sshConn.OpenChannel("direct-tcpip", nil)
+			if openErr != nil {
+				sessionsLock.Unlock()
+				log.Printf("[-] Open UDP back-channel failed: %v", openErr)
+				continue
+			}
+			go ssh.DiscardRequests(reqs3)
+			sess = &udpPeerSession{ch: ch2}
+			sessions[key] = sess
+			go func(peer net.Addr, peerKey string, ch ssh.Channel) {
+				defer closeSession(peerKey)
+				for {
+					packet, readErr := readFramedPacket(ch)
+					if readErr != nil {
+						if readErr != io.EOF {
+							log.Printf("[-] UDP read from client failed (%s): %v", peerKey, readErr)
+						}
+						return
+					}
+					if _, writeErr := pc.WriteTo(packet, peer); writeErr != nil {
+						log.Printf("[-] UDP write to peer failed (%s): %v", peerKey, writeErr)
+						return
+					}
+				}
+			}(peerAddr, key, ch2)
+		}
+		sessionsLock.Unlock()
+
+		if err := writeFramedPacket(sess.ch, buf[:n]); err != nil {
+			log.Printf("[-] UDP write to client failed (%s): %v", key, err)
+			closeSession(key)
+		}
+	}
+}
+
+func peerAllowed(peer string, clientWL []string) bool {
+	accepted := len(clientWL) == 0
+	for _, entry := range clientWL {
+		if strings.Contains(entry, "/") {
+			if _, cidr, err := net.ParseCIDR(entry); err == nil && cidr.Contains(net.ParseIP(peer)) {
+				accepted = true
+				break
+			}
+		} else if entry == peer {
+			accepted = true
+			break
+		}
+	}
+	return accepted
+}
+
+func writeFramedPacket(w io.Writer, payload []byte) error {
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(payload)))
+	if _, err := w.Write(lenBuf[:]); err != nil {
+		return err
+	}
+	if len(payload) == 0 {
+		return nil
+	}
+	_, err := w.Write(payload)
+	return err
+}
+
+func readFramedPacket(r io.Reader) ([]byte, error) {
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(lenBuf[:])
+	payload := make([]byte, length)
+	if length == 0 {
+		return payload, nil
+	}
+	if _, err := io.ReadFull(r, payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
 
 // assignPort reserves or picks a port within range using the forwards map under lock.

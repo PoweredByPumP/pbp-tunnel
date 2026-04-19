@@ -31,6 +31,7 @@ func GenerateConfigTemplate() error {
 			LocalPort:    askInt("Local port", 8080),
 			RemoteHost:   ask("Remote host to expose", "localhost"),
 			RemotePort:   askInt("Remote port to request", 0),
+			Protocol:     ask("Forward protocol (tcp/udp)", CpDefaultProtocol),
 		}
 	} else if mode == "server" {
 		config.Server = &ServerParameters{
