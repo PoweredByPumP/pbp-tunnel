@@ -10,7 +10,6 @@ import (
 )
 
 // buildSSHClientConfig creates ssh.ClientConfig from ClientParameters\
-
 func buildSSHClientConfig(params *ClientParameters) (*ssh.ClientConfig, error) {
 	authMethods := []ssh.AuthMethod{}
 
