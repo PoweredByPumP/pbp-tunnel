@@ -233,20 +233,30 @@ func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 	}()
 
 	var wg sync.WaitGroup
-	var doWaitForConnection = true
+	var connsLock sync.Mutex
+	conns := make(map[net.Conn]struct{})
+
+	// Ensure every external connection is closed once the forward ends;
+	// otherwise an idle peer would block wg.Wait() and keep the port reserved.
+	defer func() {
+		connsLock.Lock()
+		for c := range conns {
+			c.Close()
+		}
+		conns = nil
+		connsLock.Unlock()
+		wg.Wait()
+	}()
+
 	for id := 0; ; id++ {
 		conn, err := ln.Accept()
 		if err != nil {
 			select {
 			case <-done:
-				goto RELEASE
 			default:
 				log.Printf("[-] Forward accept error: %v", err)
-				if strings.Contains(err.Error(), "use of closed network connection") {
-					doWaitForConnection = false
-				}
-				goto RELEASE
 			}
+			return
 		}
 
 		peer, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
@@ -256,10 +266,26 @@ func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 			continue
 		}
 
+		connsLock.Lock()
+		if conns == nil {
+			connsLock.Unlock()
+			conn.Close()
+			return
+		}
+		conns[conn] = struct{}{}
+		connsLock.Unlock()
+
 		wg.Add(1)
 		go func(c net.Conn, idx int) {
 			defer wg.Done()
-			defer c.Close()
+			defer func() {
+				c.Close()
+				connsLock.Lock()
+				if conns != nil {
+					delete(conns, c)
+				}
+				connsLock.Unlock()
+			}()
 
 			ch2, reqs3, err := sshConn.OpenChannel("direct-tcpip", nil)
 			if err != nil {
@@ -267,6 +293,7 @@ func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 				return
 			}
 			go ssh.DiscardRequests(reqs3)
+			defer ch2.Close()
 
 			var cc sync.WaitGroup
 			cc.Add(2)
@@ -280,15 +307,13 @@ func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 				defer cc.Done()
 				n, _ := io.Copy(c, ch2)
 				log.Printf("[*] Copied %d bytes to service for forward %d", n, idx)
+				if tc, ok := c.(*net.TCPConn); ok {
+					tc.CloseWrite()
+				}
 			}()
 			cc.Wait()
 			log.Printf("[+] Forward %d closed", idx)
 		}(conn, id)
-	}
-
-RELEASE:
-	if doWaitForConnection {
-		wg.Wait()
 	}
 }
 

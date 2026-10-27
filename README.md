@@ -8,15 +8,15 @@ assignment, IP whitelisting, and automatic cleanup on client disconnection.
 
 ## Features
 
-* 🔒 **Secure by default**: SSH authentication via password or public key
-* 🔁 **Reverse tunneling**: Expose local services through the server
-* 🧠 **Automatic reconnection**: Client auto-retries on disconnection (//FIXME)
-* 🔄 **Dynamic port assignment**: Server allocates or respects requested ports
-* 🔀 **Protocol selection**: Choose `tcp` (default) or `udp` forwarding per client
-* 🚧 **IP whitelisting**: Restrict which peers can connect to forwarded ports
-* 🔌 **Multi-connection support**: Each incoming connection uses its own SSH channel
-* 🛠️ **Configurable**: JSON config file (with `generate` mode), flags or environment variables
-* 🎨 **User-friendly CLI**: Clear help, colored output
+* **Security**: SSH authentication via password or public key
+* **Reverse tunneling**: Expose local services through the server without inbound ports on the client
+* **Automatic reconnection**: Client auto-retries on disconnection
+* **Dynamic port assignment**: Server allocates or respects requested ports
+* **Protocol selection**: Choose `tcp` (default) or `udp` forwarding per client
+* **IP whitelisting**: Restrict which peers can connect to forwarded ports
+* **Multi-connection support**: Each incoming connection uses its own SSH channel
+* **Configurable**: JSON config file (with `generate` mode), flags or environment variables
+* **User-friendly CLI**: Clear help, colored output
 
 ---
 
