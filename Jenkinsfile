@@ -4,7 +4,7 @@ String projectVersion = "0.2.1-SNAPSHOT"
 
 getIDGoPipelineV2(projectName: "pbp-tunnel",
 				  projectVersion: projectVersion,
-				  goVersion: "1.26.1",
+				  goVersion: "1.27",
 				  goTarget: "./cmd/pbp-tunnel",
 				  goTest: true,
 				  goBuildOpts: "-ldflags=\"-X main.Version=${projectVersion}\"",
