@@ -3,13 +3,13 @@ package server
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/binary"
 	"io"
 	"net"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -87,31 +87,12 @@ func TestServeTCPForward_ReleasesPortWithIdleExternalConn(t *testing.T) {
 	}
 	go ssh.DiscardRequests(reqs)
 
-	var hb [4]byte
-	readU32 := func() uint32 {
-		if _, err := io.ReadFull(ch, hb[:]); err != nil {
-			t.Fatal(err)
-		}
-		return binary.BigEndian.Uint32(hb[:])
+	exposedPort, err := protocol.RequestTunnel(ch, protocol.TunnelRequest{Transport: protocol.TCP, Port: port})
+	if err != nil {
+		t.Fatalf("RequestTunnel: %v", err)
 	}
-	writeU32 := func(v uint32) {
-		binary.BigEndian.PutUint32(hb[:], v)
-		if _, err := ch.Write(hb[:]); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if readU32() != ErrSuccess {
-		t.Fatal("handshake failed")
-	}
-	writeU32(0) // empty whitelist
-	if readU32() != ErrSuccess {
-		t.Fatal("whitelist rejected")
-	}
-	writeU32(3)
-	ch.Write([]byte("tcp"))
-	writeU32(uint32(port))
-	if got := readU32(); got != uint32(port) {
-		t.Fatalf("assigned port = %d; want %d", got, port)
+	if exposedPort != port {
+		t.Fatalf("exposed port = %d; want %d", exposedPort, port)
 	}
 
 	ext, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))

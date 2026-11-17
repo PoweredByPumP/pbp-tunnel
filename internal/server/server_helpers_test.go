@@ -1,34 +1,17 @@
 package server
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
-	"fmt"
-	"io"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
+	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"github.com/poweredbypump/pbp-tunnel/internal/util"
 	"golang.org/x/crypto/ssh"
 )
-
-type failingWriter struct {
-	failOnWrite int
-	writes      int
-	err         error
-}
-
-func (w *failingWriter) Write(p []byte) (int, error) {
-	w.writes++
-	if w.writes >= w.failOnWrite {
-		return 0, w.err
-	}
-	return len(p), nil
-}
 
 func TestPeerAllowed(t *testing.T) {
 	tests := []struct {
@@ -55,68 +38,6 @@ func TestPeerAllowed(t *testing.T) {
 	}
 }
 
-func TestWriteFramedPacket_RoundTrip(t *testing.T) {
-	payloads := [][]byte{
-		nil,
-		{},
-		[]byte("hello world"),
-		bytes.Repeat([]byte{0xAB}, 1024),
-	}
-
-	for i, payload := range payloads {
-		t.Run(fmt.Sprintf("payload-%d", i), func(t *testing.T) {
-			var buf bytes.Buffer
-			if err := writeFramedPacket(&buf, payload); err != nil {
-				t.Fatalf("writeFramedPacket returned error: %v", err)
-			}
-
-			got, err := readFramedPacket(&buf)
-			if err != nil {
-				t.Fatalf("readFramedPacket returned error: %v", err)
-			}
-			if !bytes.Equal(got, payload) {
-				t.Fatalf("round-trip payload = %v; want %v", got, payload)
-			}
-		})
-	}
-}
-
-func TestWriteFramedPacket_WriteErrors(t *testing.T) {
-	t.Run("length-write-fails", func(t *testing.T) {
-		w := &failingWriter{failOnWrite: 1, err: errors.New("length write failed")}
-		if err := writeFramedPacket(w, []byte("payload")); err == nil || !strings.Contains(err.Error(), "length write failed") {
-			t.Fatalf("writeFramedPacket error = %v; want length write failure", err)
-		}
-	})
-
-	t.Run("payload-write-fails", func(t *testing.T) {
-		w := &failingWriter{failOnWrite: 2, err: errors.New("payload write failed")}
-		if err := writeFramedPacket(w, []byte("payload")); err == nil || !strings.Contains(err.Error(), "payload write failed") {
-			t.Fatalf("writeFramedPacket error = %v; want payload write failure", err)
-		}
-	})
-}
-
-func TestReadFramedPacket_Errors(t *testing.T) {
-	t.Run("missing-length", func(t *testing.T) {
-		_, err := readFramedPacket(bytes.NewReader(nil))
-		if err == nil {
-			t.Fatal("expected error for missing length, got nil")
-		}
-	})
-
-	t.Run("truncated-payload", func(t *testing.T) {
-		var buf bytes.Buffer
-		_ = binary.Write(&buf, binary.BigEndian, uint32(4))
-		buf.Write([]byte{0x01, 0x02})
-
-		_, err := readFramedPacket(&buf)
-		if err == nil {
-			t.Fatal("expected error for truncated payload, got nil")
-		}
-	})
-}
-
 func TestRun_InvalidParameters(t *testing.T) {
 	err := Run(&config.ServerParameters{})
 	if err == nil {
@@ -124,35 +45,6 @@ func TestRun_InvalidParameters(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid server parameters") {
 		t.Fatalf("Run error = %v; want invalid server parameters", err)
-	}
-}
-
-func TestReadFramedPacket_ZeroLengthPayload(t *testing.T) {
-	var buf bytes.Buffer
-	_ = binary.Write(&buf, binary.BigEndian, uint32(0))
-
-	payload, err := readFramedPacket(&buf)
-	if err != nil {
-		t.Fatalf("readFramedPacket returned error: %v", err)
-	}
-	if len(payload) != 0 {
-		t.Fatalf("expected empty payload, got %d bytes", len(payload))
-	}
-}
-
-func TestWriteFramedPacket_LengthEncoding(t *testing.T) {
-	var buf bytes.Buffer
-	payload := []byte{0x10, 0x20, 0x30}
-	if err := writeFramedPacket(&buf, payload); err != nil {
-		t.Fatalf("writeFramedPacket returned error: %v", err)
-	}
-
-	var length uint32
-	if err := binary.Read(&buf, binary.BigEndian, &length); err != nil && err != io.EOF {
-		t.Fatalf("binary.Read returned error: %v", err)
-	}
-	if length != 3 {
-		t.Fatalf("framed length = %d; want 3", length)
 	}
 }
 
@@ -233,7 +125,7 @@ func TestHandleSSHConnection_RejectsDisallowedIP(t *testing.T) {
 	}
 }
 
-func TestHandleChannel_InvalidProtocolLength(t *testing.T) {
+func TestHandleChannel_RefusesUnsupportedTransport(t *testing.T) {
 	serverCfg, clientCfg := newTestSSHConfigs(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -334,37 +226,15 @@ func TestHandleChannel_InvalidProtocolLength(t *testing.T) {
 		server.handleChannel(res.conn, serverChannel)
 	}()
 
-	readCode := func() uint32 {
-		t.Helper()
-		var code uint32
-		if err := binary.Read(clientChannel, binary.BigEndian, &code); err != nil {
-			t.Fatalf("binary.Read returned error: %v", err)
-		}
-		return code
-	}
-	writeCode := func(v uint32) {
-		t.Helper()
-		if err := binary.Write(clientChannel, binary.BigEndian, v); err != nil {
-			t.Fatalf("binary.Write returned error: %v", err)
-		}
-	}
-
-	if got := readCode(); got != ErrSuccess {
-		t.Fatalf("initial handshake code = %d; want %d", got, ErrSuccess)
-	}
-	writeCode(0)
-	if got := readCode(); got != ErrSuccess {
-		t.Fatalf("whitelist confirm code = %d; want %d", got, ErrSuccess)
-	}
-	writeCode(17)
-	if got := readCode(); got != (ErrMask | ErrUnsupportedProtocol) {
-		t.Fatalf("protocol error code = %08x; want %08x", got, ErrMask|ErrUnsupportedProtocol)
+	_, err = protocol.RequestTunnel(clientChannel, protocol.TunnelRequest{Transport: "quic"})
+	if !errors.Is(err, protocol.StatusUnsupportedTransport) {
+		t.Fatalf("RequestTunnel error = %v, want %v", err, protocol.StatusUnsupportedTransport)
 	}
 
 	_ = clientChannel.Close()
 	select {
 	case <-serverDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("handleChannel did not return after invalid protocol length")
+		t.Fatal("handleChannel did not return after refusing the transport")
 	}
 }
