@@ -18,7 +18,7 @@ func TestExposeTCP_ReleasesPortWhenClientLeavesWhilePeerIsIdle(t *testing.T) {
 	port := freeTCPPort(t)
 	server := newTestServer(t, port, port)
 	client := connectToTestServer(t, server)
-	answerForwardedConnectionsWithSilence(client)
+	forwardedConnectionAccepted := answerForwardedConnectionsWithSilence(client)
 
 	exposedPort, err := protocol.RequestTunnel(openRequestChannel(t, client), protocol.TunnelRequest{Transport: protocol.TCP, Port: port})
 	if err != nil || exposedPort != port {
@@ -29,7 +29,11 @@ func TestExposeTCP_ReleasesPortWhenClientLeavesWhilePeerIsIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer idlePeer.Close()
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-forwardedConnectionAccepted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the server did not forward the peer connection to the client")
+	}
 
 	client.Close()
 
@@ -43,8 +47,10 @@ func TestExposeTCP_ReleasesPortWhenClientLeavesWhilePeerIsIdle(t *testing.T) {
 }
 
 // answerForwardedConnectionsWithSilence accepts forwarded connections and never
-// answers them, like a local service that waits for a request.
-func answerForwardedConnectionsWithSilence(client *ssh.Client) {
+// answers them, like a local service that waits for a request. The returned
+// channel receives a value each time a forwarded connection is accepted.
+func answerForwardedConnectionsWithSilence(client *ssh.Client) <-chan struct{} {
+	accepted := make(chan struct{}, 16)
 	go func() {
 		for newChannel := range client.HandleChannelOpen("direct-tcpip") {
 			channel, requests, err := newChannel.Accept()
@@ -53,8 +59,10 @@ func answerForwardedConnectionsWithSilence(client *ssh.Client) {
 			}
 			go ssh.DiscardRequests(requests)
 			go io.Copy(io.Discard, channel)
+			accepted <- struct{}{}
 		}
 	}()
+	return accepted
 }
 
 func waitUntilPortIsFree(t *testing.T, server *Server, port int) {

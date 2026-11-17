@@ -8,7 +8,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// forwardTCP relays one forwarded connection to the local service.
 func forwardTCP(channel ssh.Channel, localAddress string, forwardID int) {
 	localConn, err := net.Dial("tcp", localAddress)
 	if err != nil {
