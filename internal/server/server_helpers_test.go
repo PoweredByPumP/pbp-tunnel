@@ -7,36 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
 	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"github.com/poweredbypump/pbp-tunnel/internal/util"
 	"golang.org/x/crypto/ssh"
 )
-
-func TestPeerAllowed(t *testing.T) {
-	tests := []struct {
-		name       string
-		peer       string
-		clientWL   []string
-		wantAccept bool
-	}{
-		{name: "empty-whitelist-allows-any-peer", peer: "203.0.113.10", clientWL: nil, wantAccept: true},
-		{name: "exact-match-allowed", peer: "203.0.113.10", clientWL: []string{"203.0.113.10"}, wantAccept: true},
-		{name: "cidr-match-allowed", peer: "192.168.1.42", clientWL: []string{"192.168.1.0/24"}, wantAccept: true},
-		{name: "mismatch-denied", peer: "198.51.100.20", clientWL: []string{"192.168.1.0/24", "203.0.113.11"}, wantAccept: false},
-		{name: "invalid-cidr-denied", peer: "198.51.100.20", clientWL: []string{"bad/cidr"}, wantAccept: false},
-		{name: "invalid-peer-denied", peer: "not-an-ip", clientWL: []string{"10.0.0.0/8"}, wantAccept: false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := peerAllowed(tc.peer, tc.clientWL)
-			if got != tc.wantAccept {
-				t.Fatalf("peerAllowed(%q, %v) = %v; want %v", tc.peer, tc.clientWL, got, tc.wantAccept)
-			}
-		})
-	}
-}
 
 func TestRun_InvalidParameters(t *testing.T) {
 	err := Run(&config.ServerParameters{})
@@ -89,9 +65,13 @@ func TestHandleSSHConnection_RejectsDisallowedIP(t *testing.T) {
 	}
 	defer ln.Close()
 
+	allowedClients, err := allowlist.Parse([]string{"203.0.113.10"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := &ForwardServer{
-		sshConfig:  serverCfg,
-		allowedIPs: []string{"203.0.113.10"},
+		sshConfig:      serverCfg,
+		allowedClients: allowedClients,
 	}
 
 	serverDone := make(chan struct{})

@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
 )
 
 // A tunnel request runs on the first channel the client opens:
 //
 //	server → client  status          StatusOK, or StatusPeerNotAllowed
 //	client → server  allowed peers   count, then each peer as a byte string
-//	server → client  status          StatusOK
+//	server → client  status          StatusOK, or StatusInvalidAllowedPeers
 //	client → server  transport       "tcp" or "udp" as a byte string
 //	client → server  requested port  0 lets the server choose
 //	server → client  port response   the exposed port, or refusedFlag | Status
@@ -33,9 +35,8 @@ const (
 const refusedFlag uint32 = 0x80000000
 
 type TunnelRequest struct {
-	// AllowedPeers lists the IPs or CIDRs allowed to connect to the exposed port.
-	// An empty list allows everyone.
-	AllowedPeers []string
+	// AllowedPeers are the only addresses allowed to connect to the exposed port.
+	AllowedPeers allowlist.List
 	Transport    Transport
 	// Port is the port the client wants exposed; 0 lets the server choose.
 	Port int
@@ -53,13 +54,14 @@ func ParseTransport(name string) (Transport, error) {
 // RequestTunnel runs the client side of a tunnel request and returns the port the
 // server exposed. A refusal from the server is returned as a Status error.
 func RequestTunnel(conn io.ReadWriter, request TunnelRequest) (exposedPort int, err error) {
-	if err := checkAllowedPeersLimits(request.AllowedPeers); err != nil {
-		return 0, err
+	allowedPeers := request.AllowedPeers.Entries()
+	if len(allowedPeers) > maxAllowedPeers {
+		return 0, fmt.Errorf("%w: %d allowed peers, maximum is %d", errLimitExceeded, len(allowedPeers), maxAllowedPeers)
 	}
 	if err := expectStatusOK(conn, "greeting"); err != nil {
 		return 0, err
 	}
-	if err := writeAllowedPeers(conn, request.AllowedPeers); err != nil {
+	if err := writeAllowedPeers(conn, allowedPeers); err != nil {
 		return 0, fmt.Errorf("send allowed peers: %w", err)
 	}
 	if err := expectStatusOK(conn, "allowed peers acknowledgement"); err != nil {
@@ -87,6 +89,9 @@ func ReceiveTunnelRequest(conn io.ReadWriter) (TunnelRequest, error) {
 		return TunnelRequest{}, fmt.Errorf("send greeting: %w", err)
 	}
 	allowedPeers, err := readAllowedPeers(conn)
+	if errors.Is(err, StatusInvalidAllowedPeers) {
+		_ = writeStatus(conn, StatusInvalidAllowedPeers)
+	}
 	if err != nil {
 		return TunnelRequest{}, fmt.Errorf("read allowed peers: %w", err)
 	}
@@ -142,34 +147,30 @@ func writeAllowedPeers(w io.Writer, allowedPeers []string) error {
 	return nil
 }
 
-func checkAllowedPeersLimits(allowedPeers []string) error {
-	if len(allowedPeers) > maxAllowedPeers {
-		return fmt.Errorf("%w: %d allowed peers, maximum is %d", errLimitExceeded, len(allowedPeers), maxAllowedPeers)
-	}
-	for _, peer := range allowedPeers {
-		if len(peer) > maxAllowedPeerLength {
-			return fmt.Errorf("%w: allowed peer %.20q... is %d bytes, maximum is %d",
-				errLimitExceeded, peer, len(peer), maxAllowedPeerLength)
-		}
-	}
-	return nil
-}
-
-func readAllowedPeers(r io.Reader) ([]string, error) {
+// readAllowedPeers wraps oversized or unparsable lists in StatusInvalidAllowedPeers.
+func readAllowedPeers(r io.Reader) (allowlist.List, error) {
 	count, err := readUint32(r)
 	if err != nil {
-		return nil, err
+		return allowlist.List{}, err
 	}
 	if count > maxAllowedPeers {
-		return nil, fmt.Errorf("%w: %d allowed peers, maximum is %d", errLimitExceeded, count, maxAllowedPeers)
+		return allowlist.List{}, fmt.Errorf("%w: %w: %d allowed peers, maximum is %d",
+			StatusInvalidAllowedPeers, errLimitExceeded, count, maxAllowedPeers)
 	}
-	allowedPeers := make([]string, 0, count)
+	entries := make([]string, 0, count)
 	for range count {
-		peer, err := readBytes(r, maxAllowedPeerLength)
-		if err != nil {
-			return nil, err
+		entry, err := readBytes(r, maxAllowedPeerLength)
+		if errors.Is(err, errLimitExceeded) {
+			return allowlist.List{}, fmt.Errorf("%w: %w", StatusInvalidAllowedPeers, err)
 		}
-		allowedPeers = append(allowedPeers, string(peer))
+		if err != nil {
+			return allowlist.List{}, err
+		}
+		entries = append(entries, string(entry))
+	}
+	allowedPeers, err := allowlist.Parse(entries)
+	if err != nil {
+		return allowlist.List{}, fmt.Errorf("%w: %w", StatusInvalidAllowedPeers, err)
 	}
 	return allowedPeers, nil
 }

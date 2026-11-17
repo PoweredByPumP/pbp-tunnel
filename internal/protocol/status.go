@@ -13,6 +13,7 @@ const (
 	StatusPortOutOfRange       Status = 3
 	StatusInternalError        Status = 4
 	StatusUnsupportedTransport Status = 5
+	StatusInvalidAllowedPeers  Status = 6
 )
 
 func (s Status) Error() string {
@@ -29,6 +30,8 @@ func (s Status) Error() string {
 		return "internal server error"
 	case StatusUnsupportedTransport:
 		return "unsupported transport"
+	case StatusInvalidAllowedPeers:
+		return "invalid allowed peer list"
 	default:
 		return fmt.Sprintf("unknown status %d", uint32(s))
 	}

@@ -6,10 +6,10 @@ import (
 	"io"
 	"log"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
 	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"golang.org/x/crypto/ssh"
@@ -21,7 +21,7 @@ type ForwardServer struct {
 	bindPort       int
 	portRangeStart int
 	portRangeEnd   int
-	allowedIPs     []string
+	allowedClients allowlist.List
 	forwards       map[int]struct{}
 	lock           sync.Mutex
 }
@@ -30,7 +30,7 @@ type ForwardServer struct {
 // sshConfig: SSH server configuration
 // bindAddress/Port: where to expose forwarded ports
 // portRangeStart/End: allowed range
-// allowedIPs: client whitelist
+// allowedClients: IPs allowed to request a tunnel
 // forwards: map of in-use ports
 // lock: protects forwards
 
@@ -58,6 +58,10 @@ func Run(spOverride *config.ServerParameters) error {
 	if err := sp.Validate(); err != nil {
 		return fmt.Errorf("invalid server parameters: %w", err)
 	}
+	allowedClients, err := allowlist.Parse(sp.AllowedIPs)
+	if err != nil {
+		return fmt.Errorf("invalid server parameters: allowed IPs: %w", err)
+	}
 	// 2) Build SSH config
 	sshCfg, addr, err := config.GetServerConfig(&sp)
 	if err != nil {
@@ -77,7 +81,7 @@ func Run(spOverride *config.ServerParameters) error {
 		bindPort:       sp.BindPort,
 		portRangeStart: sp.PortRangeStart,
 		portRangeEnd:   sp.PortRangeEnd,
-		allowedIPs:     sp.AllowedIPs,
+		allowedClients: allowedClients,
 		forwards:       make(map[int]struct{}),
 	}
 	// 4) Accept loop
@@ -103,12 +107,9 @@ func (s *ForwardServer) handleSSHConnection(nc net.Conn) {
 	defer sshConn.Close()
 	go ssh.DiscardRequests(reqs)
 
-	rAddr := sshConn.RemoteAddr().String()
-	host, _, _ := net.SplitHostPort(rAddr)
-	log.Printf("[+] New SSH connection from %s", rAddr)
-	// initial IP check
-	if len(s.allowedIPs) > 0 && !isAllowed(host, s.allowedIPs) {
-		log.Printf("[-] SSH client %s not allowed", host)
+	log.Printf("[+] New SSH connection from %s", sshConn.RemoteAddr())
+	if !s.allowedClients.Allows(sshConn.RemoteAddr()) {
+		log.Printf("[-] SSH client %s not allowed", sshConn.RemoteAddr())
 		return
 	}
 	// channel loop
@@ -131,20 +132,20 @@ func (s *ForwardServer) handleSSHConnection(nc net.Conn) {
 func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Channel) {
 	defer channel.Close()
 
-	clientHost, _, _ := net.SplitHostPort(sshConn.RemoteAddr().String())
-	if !isAllowed(clientHost, s.allowedIPs) {
+	client := sshConn.RemoteAddr()
+	if !s.allowedClients.Allows(client) {
 		_ = protocol.RejectPeer(channel)
-		log.Printf("[-] Tunnel request from %s rejected: IP not allowed", clientHost)
+		log.Printf("[-] Tunnel request from %s rejected: IP not allowed", client)
 		return
 	}
 
 	request, err := protocol.ReceiveTunnelRequest(channel)
 	if err != nil {
-		log.Printf("[-] Tunnel request from %s failed: %v", clientHost, err)
+		log.Printf("[-] Tunnel request from %s failed: %v", client, err)
 		return
 	}
 	log.Printf("[*] Tunnel request from %s: transport=%s port=%d allowed peers=%v",
-		clientHost, request.Transport, request.Port, request.AllowedPeers)
+		client, request.Transport, request.Port, request.AllowedPeers)
 
 	port, err := assignPort(request.Port, s.portRangeStart, s.portRangeEnd, s.forwards, &s.lock)
 	if err != nil {
@@ -169,7 +170,7 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 	s.lock.Unlock()
 }
 
-func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Channel, clientWL []string, port int) {
+func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Channel, allowedPeers allowlist.List, port int) {
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.bindAddress, port))
 	if err != nil {
 		_ = protocol.RefuseTunnel(channel, protocol.StatusInternalError)
@@ -215,9 +216,8 @@ func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 			return
 		}
 
-		peer, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
-		if !peerAllowed(peer, clientWL) {
-			log.Printf("[-] Connection from %s rejected by whitelist", peer)
+		if !allowedPeers.Allows(conn.RemoteAddr()) {
+			log.Printf("[-] Connection from %s rejected: not in allowed peers", conn.RemoteAddr())
 			conn.Close()
 			continue
 		}
@@ -273,7 +273,7 @@ func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 	}
 }
 
-func (s *ForwardServer) serveUDPForward(sshConn *ssh.ServerConn, channel ssh.Channel, clientWL []string, port int) {
+func (s *ForwardServer) serveUDPForward(sshConn *ssh.ServerConn, channel ssh.Channel, allowedPeers allowlist.List, port int) {
 	pc, err := net.ListenPacket("udp", fmt.Sprintf("%s:%d", s.bindAddress, port))
 	if err != nil {
 		_ = protocol.RefuseTunnel(channel, protocol.StatusInternalError)
@@ -330,8 +330,7 @@ func (s *ForwardServer) serveUDPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 			}
 		}
 
-		peerHost, _, splitErr := net.SplitHostPort(peerAddr.String())
-		if splitErr != nil || !peerAllowed(peerHost, clientWL) {
+		if !allowedPeers.Allows(peerAddr) {
 			continue
 		}
 
@@ -374,22 +373,6 @@ func (s *ForwardServer) serveUDPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 	}
 }
 
-func peerAllowed(peer string, clientWL []string) bool {
-	accepted := len(clientWL) == 0
-	for _, entry := range clientWL {
-		if strings.Contains(entry, "/") {
-			if _, cidr, err := net.ParseCIDR(entry); err == nil && cidr.Contains(net.ParseIP(peer)) {
-				accepted = true
-				break
-			}
-		} else if entry == peer {
-			accepted = true
-			break
-		}
-	}
-	return accepted
-}
-
 // assignPort reserves requestedPort, or the first free port of the range when
 // requestedPort is 0. A refusal is returned as a protocol.Status.
 func assignPort(requestedPort, start, end int, forwards map[int]struct{}, lock *sync.Mutex) (int, error) {
@@ -417,22 +400,4 @@ func assignPort(requestedPort, start, end int, forwards map[int]struct{}, lock *
 		}
 	}
 	return 0, protocol.StatusPortUnavailable
-}
-
-// isAllowed checks if ip matches allowed list entries (exact or CIDR)
-func isAllowed(ip string, allowed []string) bool {
-	if len(allowed) == 0 {
-		return true
-	}
-	parsed := net.ParseIP(ip)
-	for _, a := range allowed {
-		if strings.Contains(a, "/") {
-			if _, cidr, err := net.ParseCIDR(a); err == nil && cidr.Contains(parsed) {
-				return true
-			}
-		} else if a == ip {
-			return true
-		}
-	}
-	return false
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
 	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"golang.org/x/crypto/ssh"
@@ -111,6 +112,10 @@ func (s *ClientSession) runSession(cp *config.ClientParameters) error {
 	if err != nil {
 		return err
 	}
+	allowedPeers, err := allowlist.Parse(cp.AllowedIPs)
+	if err != nil {
+		return fmt.Errorf("allowed IPs: %w", err)
+	}
 
 	controlChannel, requests, err := s.Connection.OpenChannel("direct-tcpip", nil)
 	if err != nil {
@@ -119,9 +124,9 @@ func (s *ClientSession) runSession(cp *config.ClientParameters) error {
 	defer controlChannel.Close()
 	go ssh.DiscardRequests(requests)
 
-	log.Printf("[*] Requesting %s tunnel on remote port %d (allowed peers: %v)", transport, cp.RemotePort, cp.AllowedIPs)
+	log.Printf("[*] Requesting %s tunnel on remote port %d (allowed peers: %v)", transport, cp.RemotePort, allowedPeers)
 	exposedPort, err := protocol.RequestTunnel(controlChannel, protocol.TunnelRequest{
-		AllowedPeers: cp.AllowedIPs,
+		AllowedPeers: allowedPeers,
 		Transport:    transport,
 		Port:         cp.RemotePort,
 	})

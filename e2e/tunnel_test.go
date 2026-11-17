@@ -46,6 +46,27 @@ func TestTCPTunnel_ForwardsTrafficToLocalService(t *testing.T) {
 	}
 }
 
+func TestTCPTunnel_DisconnectsPeersOutsideAllowedList(t *testing.T) {
+	localServicePort := startTCPEchoService(t)
+	exposedPort := freeTCPPort(t)
+
+	sshPort, serverStopped := startTunnelServer(t, exposedPort)
+	clientStopped := startTunnelClient(t, sshPort, "tcp", localServicePort, exposedPort, "192.0.2.1")
+
+	conn := dialTCPWhenTunnelIsUp(t, exposedPort, serverStopped, clientStopped)
+	defer conn.Close()
+
+	_, _ = conn.Write([]byte("hello"))
+	_ = conn.SetReadDeadline(time.Now().Add(readyTimeout))
+	n, err := conn.Read(make([]byte, 16))
+	if n > 0 {
+		t.Fatalf("a peer outside the allowed list received %d bytes", n)
+	}
+	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		t.Fatal("the connection of a peer outside the allowed list was left open")
+	}
+}
+
 func TestUDPTunnel_ForwardsDatagramsToLocalService(t *testing.T) {
 	localServicePort := startUDPEchoService(t)
 	exposedPort := freeUDPPort(t)
@@ -103,9 +124,10 @@ func startTunnelServer(t *testing.T, exposedPort int) (sshPort int, stopped <-ch
 
 // startTunnelClient runs a pbp-tunnel client against the server listening on sshPort.
 // Like the server, it keeps running until the test binary exits.
-func startTunnelClient(t *testing.T, sshPort int, protocol string, localServicePort, exposedPort int) <-chan error {
+func startTunnelClient(t *testing.T, sshPort int, protocol string, localServicePort, exposedPort int, allowedPeers ...string) <-chan error {
 	t.Helper()
 	params := &config.ClientParameters{
+		AllowedIPs:   allowedPeers,
 		Endpoint:     loopback,
 		EndpointPort: sshPort,
 		Username:     tunnelUser,

@@ -61,6 +61,17 @@ func TestRunSession_RejectsUnsupportedTransportBeforeContactingServer(t *testing
 	}
 }
 
+func TestRunSession_RejectsInvalidAllowedIPsBeforeContactingServer(t *testing.T) {
+	session := newTestSession(func(io.ReadWriter) {
+		t.Error("the server should not be contacted")
+	})
+
+	err := session.runSession(&config.ClientParameters{Protocol: "tcp", AllowedIPs: []string{"10.0.0.1,10.0.0.2"}})
+	if err == nil || !strings.Contains(err.Error(), "allowed IPs") {
+		t.Errorf("runSession error = %v, want an allowed IPs error", err)
+	}
+}
+
 func TestRunSession_FailsWhenRequestChannelCannotOpen(t *testing.T) {
 	session := &ClientSession{
 		Connection:   newSSHClient(&stubConn{openChannelErr: errors.New("network unreachable")}),

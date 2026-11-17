@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
 )
 
 func TestTunnelHandshake_ServerReceivesRequestAndClientGetsExposedPort(t *testing.T) {
 	sentRequest := TunnelRequest{
-		AllowedPeers: []string{"10.0.0.0/8", "203.0.113.7"},
+		AllowedPeers: mustParseAllowlist(t, "10.0.0.0/8", "203.0.113.7"),
 		Transport:    UDP,
 		Port:         40000,
 	}
@@ -36,7 +40,7 @@ func TestTunnelHandshake_ServerReceivesRequestAndClientGetsExposedPort(t *testin
 	}
 	got := <-receivedRequest
 	if got.Transport != sentRequest.Transport || got.Port != sentRequest.Port ||
-		strings.Join(got.AllowedPeers, ",") != strings.Join(sentRequest.AllowedPeers, ",") {
+		!slices.Equal(got.AllowedPeers.Entries(), sentRequest.AllowedPeers.Entries()) {
 		t.Errorf("server received %+v, want %+v", got, sentRequest)
 	}
 }
@@ -118,7 +122,7 @@ func TestRequestTunnel_FailsWhenServerHangsUp(t *testing.T) {
 func TestRequestTunnel_WireFormat(t *testing.T) {
 	conn := &scriptedConn{replies: bytes.NewReader(wireBytes(StatusOK, StatusOK, 8080))}
 
-	_, err := RequestTunnel(conn, TunnelRequest{AllowedPeers: []string{"10.0.0.0/8"}, Transport: UDP, Port: 8080})
+	_, err := RequestTunnel(conn, TunnelRequest{AllowedPeers: mustParseAllowlist(t, "10.0.0.0/8"), Transport: UDP, Port: 8080})
 	if err != nil {
 		t.Fatalf("RequestTunnel: %v", err)
 	}
@@ -197,40 +201,54 @@ func TestParseTransport(t *testing.T) {
 	}
 }
 
-func TestReceiveTunnelRequest_RefusesOversizedAllowedPeers(t *testing.T) {
+func TestReceiveTunnelRequest_RefusesInvalidAllowedPeers(t *testing.T) {
 	tests := map[string][]byte{
 		"too many peers":  wireBytes(maxAllowedPeers + 1),
-		"peer too long":   wireBytes(1, maxAllowedPeerLength+1),
 		"huge peer count": wireBytes(0xFFFFFFFF),
+		"peer too long":   wireBytes(1, maxAllowedPeerLength+1),
+		"not an IP":       wireBytes(1, 9, "localhost"),
 	}
 	for name, clientRequest := range tests {
 		t.Run(name, func(t *testing.T) {
 			conn := &scriptedConn{replies: bytes.NewReader(clientRequest)}
+
 			_, err := ReceiveTunnelRequest(conn)
-			if !errors.Is(err, errLimitExceeded) {
-				t.Errorf("ReceiveTunnelRequest error = %v, want %v", err, errLimitExceeded)
+
+			if !errors.Is(err, StatusInvalidAllowedPeers) {
+				t.Errorf("ReceiveTunnelRequest error = %v, want %v", err, StatusInvalidAllowedPeers)
+			}
+			want := wireBytes(StatusOK, StatusInvalidAllowedPeers)
+			if !bytes.Equal(conn.written.Bytes(), want) {
+				t.Errorf("server wrote %x, want %x", conn.written.Bytes(), want)
 			}
 		})
 	}
 }
 
-func TestRequestTunnel_RefusesOversizedAllowedPeersBeforeSendingAnything(t *testing.T) {
-	tests := map[string][]string{
-		"too many peers": make([]string, maxAllowedPeers+1),
-		"peer too long":  {strings.Repeat("1", maxAllowedPeerLength+1)},
+func TestRequestTunnel_RefusesTooManyAllowedPeersBeforeSendingAnything(t *testing.T) {
+	entries := make([]string, maxAllowedPeers+1)
+	for i := range entries {
+		entries[i] = fmt.Sprintf("10.0.%d.%d", i/256, i%256)
 	}
-	for name, allowedPeers := range tests {
-		t.Run(name, func(t *testing.T) {
-			conn := &scriptedConn{replies: bytes.NewReader(wireBytes(StatusOK, StatusOK, 8080))}
-			_, err := RequestTunnel(conn, TunnelRequest{AllowedPeers: allowedPeers, Transport: TCP})
-			if !errors.Is(err, errLimitExceeded) {
-				t.Errorf("RequestTunnel error = %v, want %v", err, errLimitExceeded)
-			}
-			if conn.written.Len() != 0 {
-				t.Errorf("client wrote %d bytes before refusing the request", conn.written.Len())
-			}
-		})
+	conn := &scriptedConn{replies: bytes.NewReader(wireBytes(StatusOK, StatusOK, 8080))}
+
+	_, err := RequestTunnel(conn, TunnelRequest{AllowedPeers: mustParseAllowlist(t, entries...), Transport: TCP})
+
+	if !errors.Is(err, errLimitExceeded) {
+		t.Errorf("RequestTunnel error = %v, want %v", err, errLimitExceeded)
 	}
+	if conn.written.Len() != 0 {
+		t.Errorf("client wrote %d bytes before refusing the request", conn.written.Len())
+	}
+}
+
+func mustParseAllowlist(t *testing.T, entries ...string) allowlist.List {
+	t.Helper()
+	list, err := allowlist.Parse(entries)
+	if err != nil {
+		t.Fatalf("allowlist.Parse(%q): %v", entries, err)
+	}
+	return list
 }
 
 // requestTunnelFrom runs RequestTunnel against a fake server driven by serve.
