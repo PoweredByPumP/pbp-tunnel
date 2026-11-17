@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/poweredbypump/pbp-tunnel/internal/util"
@@ -55,6 +56,20 @@ func TestLoadEnvConfig(t *testing.T) {
 	}
 	if cfg.Server.PortRangeEnd != 2000 {
 		t.Errorf("Server.PortRangeEnd = %d; want %d", cfg.Server.PortRangeEnd, 2000)
+	}
+}
+
+func TestLoadEnvConfig_SplitsAllowedIPsAndTrimsSpaces(t *testing.T) {
+	t.Setenv("PBP_TUNNEL_ALLOWED_IPS", "10.0.0.1, 192.168.0.0/16 ,")
+
+	cfg := LoadEnvConfig()
+
+	want := []string{"10.0.0.1", "192.168.0.0/16"}
+	if !slices.Equal(cfg.Client.AllowedIPs, want) {
+		t.Errorf("Client.AllowedIPs = %q, want %q", cfg.Client.AllowedIPs, want)
+	}
+	if !slices.Equal(cfg.Server.AllowedIPs, want) {
+		t.Errorf("Server.AllowedIPs = %q, want %q", cfg.Server.AllowedIPs, want)
 	}
 }
 

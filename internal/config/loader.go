@@ -84,7 +84,7 @@ func LoadEnvConfig() *AppConfig {
 		}
 	}
 	if v := GetEnvValue(CpKeyAllowedIPs, ""); v != "" {
-		configuration.Client.AllowedIPs = strings.Split(v, ",")
+		configuration.Client.AllowedIPs = splitCommaSeparated(v)
 	}
 
 	// Server section
@@ -125,7 +125,7 @@ func LoadEnvConfig() *AppConfig {
 		configuration.Server.AuthorizedKeysPath = v
 	}
 	if v := GetEnvValue(SpKeyAllowedIPS, ""); v != "" {
-		configuration.Server.AllowedIPs = strings.Split(v, ",")
+		configuration.Server.AllowedIPs = splitCommaSeparated(v)
 	}
 
 	return configuration
