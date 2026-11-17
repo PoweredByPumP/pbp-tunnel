@@ -19,21 +19,9 @@ import (
 type ForwardServer struct {
 	sshConfig      *ssh.ServerConfig
 	bindAddress    string
-	bindPort       int
-	portRangeStart int
-	portRangeEnd   int
 	allowedClients allowlist.List
-	forwards       map[int]struct{}
-	lock           sync.Mutex
+	ports          *portPool
 }
-
-// ForwardServer maintains state for port forwarding
-// sshConfig: SSH server configuration
-// bindAddress/Port: where to expose forwarded ports
-// portRangeStart/End: allowed range
-// allowedClients: IPs allowed to request a tunnel
-// forwards: map of in-use ports
-// lock: protects forwards
 
 // Run starts the SSH reverse-tunnel server
 func Run(params *config.ServerParameters) error {
@@ -65,11 +53,8 @@ func Run(params *config.ServerParameters) error {
 	srv := &ForwardServer{
 		sshConfig:      sshCfg,
 		bindAddress:    sp.BindAddress,
-		bindPort:       sp.BindPort,
-		portRangeStart: sp.PortRangeStart,
-		portRangeEnd:   sp.PortRangeEnd,
 		allowedClients: allowedClients,
-		forwards:       make(map[int]struct{}),
+		ports:          newPortPool(sp.PortRangeStart, sp.PortRangeEnd),
 	}
 	// 4) Accept loop
 	for {
@@ -153,7 +138,7 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 	log.Printf("[*] Tunnel request from %s: transport=%s port=%d allowed peers=%v",
 		client, request.Transport, request.Port, request.AllowedPeers)
 
-	port, err := assignPort(request.Port, s.portRangeStart, s.portRangeEnd, s.forwards, &s.lock)
+	port, err := s.ports.Reserve(request.Port)
 	if err != nil {
 		_ = protocol.RefuseTunnel(channel, err)
 		log.Printf("[-] Port assignment failed: %v", err)
@@ -167,13 +152,8 @@ func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Chann
 		s.serveTCPForward(sshConn, channel, request.AllowedPeers, port)
 	}
 
-	log.Printf("[*] Waiting for lock to release port %d", port)
-	s.lock.Lock()
-
+	s.ports.Release(port)
 	log.Printf("[*] Client disconnected, freed port %d", port)
-	delete(s.forwards, port)
-
-	s.lock.Unlock()
 }
 
 func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Channel, allowedPeers allowlist.List, port int) {
@@ -377,33 +357,4 @@ func (s *ForwardServer) serveUDPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 			closeSession(key)
 		}
 	}
-}
-
-// assignPort reserves requestedPort, or the first free port of the range when
-// requestedPort is 0. A refusal is returned as a protocol.Status.
-func assignPort(requestedPort, start, end int, forwards map[int]struct{}, lock *sync.Mutex) (int, error) {
-	if start > end {
-		return 0, protocol.StatusPortUnavailable
-	}
-	if requestedPort != 0 {
-		if requestedPort < start || requestedPort > end {
-			return 0, protocol.StatusPortOutOfRange
-		}
-		lock.Lock()
-		defer lock.Unlock()
-		if _, used := forwards[requestedPort]; used {
-			return 0, protocol.StatusPortUnavailable
-		}
-		forwards[requestedPort] = struct{}{}
-		return requestedPort, nil
-	}
-	lock.Lock()
-	defer lock.Unlock()
-	for port := start; port <= end; port++ {
-		if _, used := forwards[port]; !used {
-			forwards[port] = struct{}{}
-			return port, nil
-		}
-	}
-	return 0, protocol.StatusPortUnavailable
 }

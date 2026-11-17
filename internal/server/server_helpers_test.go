@@ -207,11 +207,9 @@ func TestHandleChannel_RefusesUnsupportedTransport(t *testing.T) {
 
 	serverDone := make(chan struct{})
 	server := &ForwardServer{
-		sshConfig:      serverCfg,
-		bindAddress:    "127.0.0.1",
-		portRangeStart: 40000,
-		portRangeEnd:   40010,
-		forwards:       make(map[int]struct{}),
+		sshConfig:   serverCfg,
+		bindAddress: "127.0.0.1",
+		ports:       newPortPool(40000, 40010),
 	}
 	go func() {
 		defer close(serverDone)

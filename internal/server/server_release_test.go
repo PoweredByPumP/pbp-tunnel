@@ -39,11 +39,9 @@ func TestServeTCPForward_ReleasesPortWithIdleExternalConn(t *testing.T) {
 
 	port := freeTCPPort(t)
 	srv := &ForwardServer{
-		sshConfig:      cfg,
-		bindAddress:    "127.0.0.1",
-		portRangeStart: port,
-		portRangeEnd:   port,
-		forwards:       make(map[int]struct{}),
+		sshConfig:   cfg,
+		bindAddress: "127.0.0.1",
+		ports:       newPortPool(port, port),
 	}
 
 	sshLn, err := net.Listen("tcp", "127.0.0.1:0")
@@ -113,10 +111,7 @@ func TestServeTCPForward_ReleasesPortWithIdleExternalConn(t *testing.T) {
 
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		srv.lock.Lock()
-		_, used := srv.forwards[port]
-		srv.lock.Unlock()
-		if !used {
+		if _, err := srv.ports.Reserve(port); err == nil {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
