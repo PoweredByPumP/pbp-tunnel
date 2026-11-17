@@ -2,7 +2,7 @@
 
 **pbp-tunnel** is a reverse SSH port-forwarding tool that lets you expose a local service on a remote host through SSH,
 without opening inbound ports on the client side. It supports password and key-based authentication, dynamic port
-assignment, IP whitelisting, and automatic cleanup on client disconnection.
+assignment, IP allow lists, and automatic cleanup on client disconnection.
 
 ---
 
@@ -13,7 +13,7 @@ assignment, IP whitelisting, and automatic cleanup on client disconnection.
 * **Automatic reconnection**: Client auto-retries on disconnection
 * **Dynamic port assignment**: Server allocates or respects requested ports
 * **Protocol selection**: Choose `tcp` (default) or `udp` forwarding per client
-* **IP whitelisting**: Restrict which peers can connect to forwarded ports
+* **Allowed IPs**: Restrict which clients may open tunnels and which peers may use them
 * **Multi-connection support**: Each incoming connection uses its own SSH channel
 * **Configurable**: JSON config file (with `generate` mode), flags or environment variables
 * **User-friendly CLI**: Clear help, colored output
@@ -244,16 +244,23 @@ Global flags go before the command:
 
 ## Testing
 
-Run all unit tests:
+Run every test, including the end-to-end tests that start a real server and client
+on the loopback interface:
 
 ```bash
-go test ./... -v
+go test ./...
 ```
 
-Or just server package:
+Check for data races (needs cgo and a C compiler):
 
 ```bash
-go test ./internal/server -v
+go test -race ./...
+```
+
+Run only the end-to-end tests:
+
+```bash
+go test ./e2e
 ```
 
 ---
@@ -261,35 +268,15 @@ go test ./internal/server -v
 ## Project Structure
 
 ```text
-.
-├── cmd/pbp-tunnel/main.go
-├── config.json.sample
-├── Dockerfile
-├── go.mod
-├── go.sum
-├── internal
-│   ├── client
-│   │   ├── client.go
-│   │   └── client_test.go
-│   ├── config
-│   │   ├── constants.go
-│   │   ├── constants_test.go
-│   │   ├── loader.go
-│   │   ├── loader_test.go
-│   │   ├── provider.go
-│   │   ├── provider_test.go
-│   │   ├── template.go
-│   │   ├── templates/config.json.tmpl
-│   │   └── template_test.go
-│   ├── server
-│   │   ├── server.go
-│   │   └── server_test.go
-│   └── util
-│       └── helper.go
-├── Jenkinsfile
-├── Makefile
-├── out/pbp-tunnel
-└── README.md
+cmd/pbp-tunnel/      command line: global flags, commands, logging, help
+internal/config/     parameters: defaults, config file, environment, flags, generate
+internal/client/     reconnection loop, tunnel session, TCP and UDP relays
+internal/server/     SSH server, port pool, tunnel requests, TCP and UDP relays
+internal/protocol/   the tunnel request exchanged by the client and the server
+internal/allowlist/  lists of allowed IP addresses and CIDR ranges
+internal/hostkey/    generation of missing server host keys
+internal/relay/      two-way copy between a connection and an SSH channel
+e2e/                 end-to-end tests
 ```
 
 ---
@@ -297,20 +284,21 @@ go test ./internal/server -v
 ## Architecture Overview
 
 ```
-[ Local Service ] ←─── SSH Tunnel ───→ [ pbp-tunnel Client ]
-                                     │
-                          Reverse port request (host:port)
-                                     │
-                              [ pbp-tunnel Server ]
-                                     │
-                              [ Exposed Public Port ]
+[ Remote peer ] ──→ [ Exposed port ]  pbp-tunnel server
+                          ▲
+                          │  SSH connection, opened by the client
+                          ▼
+                    pbp-tunnel client ──→ [ Local service ]
 ```
 
-1. **Client** connects to **Server** via SSH.
-2. Client sends a port-forward request.
-3. **Server** allocates or validates the port in its allowed range.
-4. Incoming connections on that port are tunneled back to the **Client**, which forwards them to the **Local Service**.
-5. On client disconnect, the server cleans up and frees the port.
+1. The **client** opens an SSH connection to the **server** and sends a tunnel request
+   on a first channel: the IPs allowed to use the port, `tcp` or `udp`, and the port it
+   wants (0 lets the server choose). The exchange is described in
+   [`internal/protocol/handshake.go`](internal/protocol/handshake.go).
+2. The **server** reserves the port in its range and listens on it.
+3. Each connection on that port, or each UDP peer, gets its own SSH channel to the
+   client, which relays it to the **local service**.
+4. When the SSH connection ends, the server frees the port and the client reconnects.
 
 ---
 
@@ -340,7 +328,9 @@ server address at the start of the line.
 
 ### Other notes
 
-* **IP whitelisting** protects forwarded ports from unwanted peers.
+* **Allowed IPs**: on the server, `allowed_ips` lists the clients that may open a
+  tunnel; on the client, it lists the peers that may use the exposed port. An empty
+  list allows everyone, and an invalid entry stops the program at startup.
 * **Automatic cleanup** prevents stale port reservations.
 * **Key permissions**: private keys should be `0600`.
 
