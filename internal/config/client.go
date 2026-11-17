@@ -5,56 +5,63 @@ import (
 	"strings"
 )
 
-// ClientParameters holds configuration for the SSH client
-// Fields may be set via JSON file or environment variables
-// Endpoint and EndpointPort specify the SSH server to connect to
 type ClientParameters struct {
-	Endpoint       string      `json:"endpoint"`
-	EndpointPort   int         `json:"port"`
-	Username       string      `json:"username"`
-	Password       string      `json:"password"`
-	PrivateKeyPath string      `json:"identity"`
-	HostKeyPath    string      `json:"host_key"`
-	LocalHost      string      `json:"local_host"`
-	LocalPort      int         `json:"local_port"`
-	RemoteHost     string      `json:"remote_host"`
-	RemotePort     int         `json:"remote_port"`
-	Protocol       string      `json:"protocol"`
-	HostKeyLevel   int         `json:"host_key_level"`
-	AllowedIPs     StringArray `json:"allowed_ips"`
+	Endpoint       string `json:"endpoint"`
+	EndpointPort   int    `json:"port"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	PrivateKeyPath string `json:"identity"`
+	// HostKeyPath is a known_hosts file used to check the server identity.
+	HostKeyPath string `json:"host_key"`
+	LocalHost   string `json:"local_host"`
+	LocalPort   int    `json:"local_port"`
+	RemoteHost  string `json:"remote_host"`
+	// RemotePort is the port to expose on the server; 0 lets the server choose.
+	RemotePort int    `json:"remote_port"`
+	Protocol   string `json:"protocol"`
+	// HostKeyLevel is 0 for no check, 1 to warn and 2 to refuse an unknown server.
+	HostKeyLevel int `json:"host_key_level"`
+	// AllowedIPs restricts who may connect to the exposed port; empty allows everyone.
+	AllowedIPs []string `json:"allowed_ips"`
 }
 
-// Validate ensures the ClientParameters contains all required fields and valid values
-func (cp *ClientParameters) Validate() error {
-	if cp.Endpoint == "" {
+func DefaultClientParameters() *ClientParameters {
+	return &ClientParameters{
+		EndpointPort: DefaultPort,
+		LocalHost:    "localhost",
+		LocalPort:    80,
+		RemoteHost:   "localhost",
+		Protocol:     "tcp",
+		HostKeyLevel: 2,
+	}
+}
+
+func (p *ClientParameters) Validate() error {
+	if p.Endpoint == "" {
 		return fmt.Errorf("endpoint is required")
 	}
-	if cp.EndpointPort <= 0 || cp.EndpointPort > 65535 {
+	if p.EndpointPort <= 0 || p.EndpointPort > 65535 {
 		return fmt.Errorf("endpoint port must be between 1 and 65535")
 	}
-	if cp.Username == "" {
+	if p.Username == "" {
 		return fmt.Errorf("username is required")
 	}
-	if cp.PrivateKeyPath == "" && cp.Password == "" {
+	if p.PrivateKeyPath == "" && p.Password == "" {
 		return fmt.Errorf("either private_key or password must be set")
 	}
-	if cp.LocalHost == "" {
+	if p.LocalHost == "" {
 		return fmt.Errorf("local_host is required")
 	}
-	if cp.LocalPort <= 0 || cp.LocalPort > 65535 {
+	if p.LocalPort <= 0 || p.LocalPort > 65535 {
 		return fmt.Errorf("local_port must be between 1 and 65535")
 	}
-	if cp.RemoteHost == "" {
+	if p.RemoteHost == "" {
 		return fmt.Errorf("remote_host is required")
 	}
-	if cp.RemotePort < 0 || cp.RemotePort > 65535 {
+	if p.RemotePort < 0 || p.RemotePort > 65535 {
 		return fmt.Errorf("remote_port must be between 0 and 65535")
 	}
-	if cp.Protocol == "" {
-		cp.Protocol = CpDefaultProtocol
-	}
-	cp.Protocol = strings.ToLower(cp.Protocol)
-	if cp.Protocol != "tcp" && cp.Protocol != "udp" {
+	if protocol := strings.ToLower(p.Protocol); protocol != "tcp" && protocol != "udp" {
 		return fmt.Errorf("protocol must be either tcp or udp")
 	}
 	return nil

@@ -50,67 +50,58 @@ func main() {
 		go monitorGoroutines()
 	}
 
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-
 	if len(os.Args) < 2 {
-		cfg := config.LoadConfig()
-		switch cfg.Type {
-		case "client":
-			if cfg.Client == nil {
-				log.Fatal("client configuration missing in config file")
-			}
-			if err := client.Run(cfg.Client); err != nil {
-				log.Fatalf("Client error: %v", err)
-			}
-			return
-
-		case "server":
-			if cfg.Server == nil {
-				log.Fatal("server configuration missing in config file")
-			}
-			if err := server.Run(cfg.Server); err != nil {
-				log.Fatalf("Server error: %v", err)
-			}
-			return
-
+		mode, err := config.ReadMode()
+		if err != nil {
+			log.Fatalf("Configuration error: %v", err)
+		}
+		switch mode {
+		case config.ModeClient:
+			runClient(nil)
+		case config.ModeServer:
+			runServer(nil)
 		default:
 			util.PrintHelp()
 			os.Exit(1)
 		}
+		return
 	}
 
-	cmd := os.Args[1]
-	os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
-
-	switch cmd {
+	switch command := os.Args[1]; command {
 	case "client":
-		flag.Usage = util.PrintClientHelp
-
-		overrideCfg := config.LoadClientConfig()
-		err := client.Run(overrideCfg)
-
-		if err != nil {
-			log.Fatalf("Client error: %v", err)
-		}
-
+		runClient(os.Args[2:])
 	case "server":
-		flag.Usage = util.PrintServerHelp
-
-		overrideCfg := config.LoadServerConfig()
-		err := server.Run(overrideCfg)
-
-		if err != nil {
-			log.Fatalf("Server error: %v", err)
-		}
-
+		runServer(os.Args[2:])
 	case "generate":
-		err := config.GenerateConfigTemplate()
-		if err != nil {
+		if err := config.GenerateConfigTemplate(); err != nil {
 			log.Fatalf("Error generating config template: %v", err)
 		}
-
 	default:
-		log.Fatalf("Unknown command: %s", cmd)
+		log.Fatalf("Unknown command: %s", command)
+	}
+}
+
+func runClient(args []string) {
+	flags := flag.NewFlagSet("client", flag.ExitOnError)
+	flags.Usage = func() { util.PrintSubcommandHelp("client", flags) }
+	params, err := config.LoadClientParameters(flags, args)
+	if err != nil {
+		log.Fatalf("Client configuration error: %v", err)
+	}
+	if err := client.Run(params); err != nil {
+		log.Fatalf("Client error: %v", err)
+	}
+}
+
+func runServer(args []string) {
+	flags := flag.NewFlagSet("server", flag.ExitOnError)
+	flags.Usage = func() { util.PrintSubcommandHelp("server", flags) }
+	params, err := config.LoadServerParameters(flags, args)
+	if err != nil {
+		log.Fatalf("Server configuration error: %v", err)
+	}
+	if err := server.Run(params); err != nil {
+		log.Fatalf("Server error: %v", err)
 	}
 }
 

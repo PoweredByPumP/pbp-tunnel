@@ -46,32 +46,13 @@ func PrintHelp() {
 	fmt.Println("  pbp-tunnel server --help")
 }
 
-// PrintClientHelp prints the help for the client subcommand
-func PrintClientHelp() {
+// PrintSubcommandHelp lists the flags of a subcommand with their default values.
+func PrintSubcommandHelp(subcommand string, flags *flag.FlagSet) {
 	fmt.Println(c("Usage:", colorBlue))
-	fmt.Println("  pbp-tunnel client [flags]")
+	fmt.Printf("  pbp-tunnel %s [flags]\n", subcommand)
 
 	fmt.Println(c("Available flags:", colorBlue))
-	flag.VisitAll(func(f *flag.Flag) {
-		def := f.DefValue
-		if def == "" {
-			def = "none"
-		}
-		fmt.Printf("  %s\t%s %s\n",
-			c("--"+f.Name, colorYellow),
-			f.Usage,
-			c(fmt.Sprintf("(default: %s)", def), colorGray),
-		)
-	})
-}
-
-// PrintServerHelp prints the help for the server subcommand
-func PrintServerHelp() {
-	fmt.Println(c("Usage:", colorBlue))
-	fmt.Println("  pbp-tunnel server [flags]")
-
-	fmt.Println(c("Available flags:", colorBlue))
-	flag.VisitAll(func(f *flag.Flag) {
+	flags.VisitAll(func(f *flag.Flag) {
 		def := f.DefValue
 		if def == "" {
 			def = "none"

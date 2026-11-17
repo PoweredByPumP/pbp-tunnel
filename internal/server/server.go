@@ -1,7 +1,6 @@
 package server
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -37,26 +36,8 @@ type ForwardServer struct {
 // lock: protects forwards
 
 // Run starts the SSH reverse-tunnel server
-func Run(spOverride *config.ServerParameters) error {
-	var sp config.ServerParameters
-	if spOverride == nil {
-		flag.StringVar(&sp.BindAddress, config.SpKeyBindAddress, config.SpDefaultBindAddress, "bind address")
-		flag.IntVar(&sp.BindPort, config.SpKeyBindPort, config.SpDefaultBindPort, "bind port")
-		flag.IntVar(&sp.PortRangeStart, config.SpKeyPortRangeStart, config.SpDefaultPortRangeStart, "start port range")
-		flag.IntVar(&sp.PortRangeEnd, config.SpKeyPortRangeEnd, config.SpDefaultPortRangeEnd, "end port range")
-		flag.StringVar(&sp.Username, config.SpKeyUsername, config.SpDefaultUsername, "SSH username")
-		flag.StringVar(&sp.Password, config.SpKeyPassword, config.SpDefaultPassword, "SSH password")
-		flag.StringVar(&sp.PrivateRsaPath, config.SpKeyPrivateRsaPath, config.SpDefaultPrivateRsa, "path to RSA key")
-		flag.StringVar(&sp.PrivateEcdsaPath, config.SpKeyPrivateEcdsaPath, config.SpDefaultPrivateEcdsa, "path to ECDSA key")
-		flag.StringVar(&sp.PrivateEd25519Path, config.SpKeyPrivateEd25519Path, config.SpDefaultPrivateEd25519, "path to Ed25519 key")
-		flag.StringVar(&sp.AuthorizedKeysPath, config.SpKeyAuthorizedKeysPath, config.SpDefaultAuthorizedKeys, "path to authorized_keys")
-		flag.Var(&sp.AllowedIPs, config.SpKeyAllowedIPS, "comma-separated list of allowed IPs")
-		flag.Parse()
-	} else {
-		sp = *spOverride
-	}
-
-	// 1) Validate configuration
+func Run(params *config.ServerParameters) error {
+	sp := *params
 	if err := sp.Validate(); err != nil {
 		return fmt.Errorf("invalid server parameters: %w", err)
 	}

@@ -115,9 +115,17 @@ With flags:
 
 ## Configuration
 
+Settings come from four sources. Each one overrides the previous:
+
+1. built-in defaults (see `pbp-tunnel client --help` and `pbp-tunnel server --help`)
+2. the JSON config file
+3. `PBP_TUNNEL_*` environment variables
+4. command-line flags
+
 ### JSON Config File
 
-Create a `config.json` alongside the binary:
+Create a `config.json` in the working directory, or point `PBP_TUNNEL_CONFIG` to
+another file:
 
 ```json lines
 // server mode
@@ -166,28 +174,35 @@ Generate an interactive template with:
 
 ### Environment Variables
 
-All settings can be overridden via environment variables prefixed `PBP_TUNNEL_`. For example:
+Every flag has a matching variable: `PBP_TUNNEL_` followed by the flag name in
+upper case with dashes turned into underscores (`--local-port` becomes
+`PBP_TUNNEL_LOCAL_PORT`). Empty variables are ignored, and an invalid value stops
+the program with an error.
 
-| Variable                          | Description                                |
-|-----------------------------------|--------------------------------------------|
-| `PBP_TUNNEL_TYPE`                 | "client" or "server"                       |
-| `PBP_TUNNEL_ENDPOINT`             | Server address (client mode)               |
-| `PBP_TUNNEL_PORT`                 | Server port                                |
-| `PBP_TUNNEL_USERNAME`             | SSH username                               |
-| `PBP_TUNNEL_PASSWORD`             | SSH password                               |
-| `PBP_TUNNEL_LOCAL_HOST`           | Local service address (client mode)        |
-| `PBP_TUNNEL_LOCAL_PORT`           | Local service port (client mode)           |
-| `PBP_TUNNEL_REMOTE_HOST`          | Remote host to expose (client mode)        |
-| `PBP_TUNNEL_REMOTE_PORT`          | Remote port to request (0 for dynamic)     |
-| `PBP_TUNNEL_PROTOCOL`             | Forward protocol: `tcp` (default) or `udp` |
-| `PBP_TUNNEL_BIND`                 | Server bind address                        |
-| `PBP_TUNNEL_BIND_PORT`            | Server listen port                         |
-| `PBP_TUNNEL_PORT_RANGE_START`     | Start of server port range                 |
-| `PBP_TUNNEL_PORT_RANGE_END`       | End of server port range                   |
-| `PBP_TUNNEL_PRIVATE_RSA_PATH`     | Server private RSA key path                |
-| `PBP_TUNNEL_PRIVATE_ECDSA_PATH`   | Server private ECDSA key path              |
-| `PBP_TUNNEL_PRIVATE_ED25519_PATH` | Server private ED25519 key path            |
-| `PBP_TUNNEL_ALLOWED_IPS`          | Comma-separated list of allowed client IPs |
+| Variable                               | Description                                  |
+|----------------------------------------|----------------------------------------------|
+| `PBP_TUNNEL_TYPE`                      | "client" or "server", when run without a command |
+| `PBP_TUNNEL_CONFIG`                    | Path of the JSON config file                 |
+| `PBP_TUNNEL_ENDPOINT`                  | Server address (client mode)                 |
+| `PBP_TUNNEL_PORT`                      | SSH port: listened on by the server, dialed by the client |
+| `PBP_TUNNEL_USERNAME`                  | SSH username                                 |
+| `PBP_TUNNEL_PASSWORD`                  | SSH password                                 |
+| `PBP_TUNNEL_IDENTITY`                  | Private key path (client mode)               |
+| `PBP_TUNNEL_HOST_KEY`                  | Known hosts file (client mode)               |
+| `PBP_TUNNEL_HOST_KEY_LEVEL`            | Host key check level (client mode)           |
+| `PBP_TUNNEL_LOCAL_HOST`                | Local service address (client mode)          |
+| `PBP_TUNNEL_LOCAL_PORT`                | Local service port (client mode)             |
+| `PBP_TUNNEL_REMOTE_HOST`               | Remote host to expose (client mode)          |
+| `PBP_TUNNEL_REMOTE_PORT`               | Remote port to request (0 for dynamic)       |
+| `PBP_TUNNEL_PROTOCOL`                  | Forward protocol: `tcp` (default) or `udp`   |
+| `PBP_TUNNEL_BIND`                      | Server bind address                          |
+| `PBP_TUNNEL_PORT_RANGE_START`          | Start of server port range                   |
+| `PBP_TUNNEL_PORT_RANGE_END`            | End of server port range                     |
+| `PBP_TUNNEL_PRIVATE_RSA_PATH`          | Server private RSA key path                  |
+| `PBP_TUNNEL_PRIVATE_ECDSA_PATH`        | Server private ECDSA key path                |
+| `PBP_TUNNEL_PRIVATE_ED25519_PATH`      | Server private ED25519 key path              |
+| `PBP_TUNNEL_AUTHORIZED_KEYS_PATH`      | Server authorized_keys path                  |
+| `PBP_TUNNEL_ALLOWED_IPS`               | Comma-separated list of allowed IPs          |
 
 ---
 

@@ -1,7 +1,6 @@
 package client
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -29,29 +28,8 @@ type ClientSession struct {
 }
 
 // Run establishes the SSH connection and manages retries, handshake, and forwarding
-func Run(cpOverride *config.ClientParameters) error {
-	var cp config.ClientParameters
-
-	if cpOverride == nil {
-		flag.StringVar(&cp.Endpoint, config.CpKeyEndpoint, config.CpDefaultEndpoint, "SSH server endpoint")
-		flag.IntVar(&cp.EndpointPort, config.CpKeyEndpointPort, config.CpDefaultEndpointPort, "SSH server port")
-		flag.StringVar(&cp.Username, config.CpKeyUsername, config.CpDefaultUsername, "SSH username")
-		flag.StringVar(&cp.Password, config.CpKeyPassword, config.CpDefaultPassword, "SSH password")
-		flag.StringVar(&cp.PrivateKeyPath, config.CpKeyPrivateKeyPath, config.CpDefaultPrivateKeyPath, "Private key path (optional)")
-		flag.StringVar(&cp.HostKeyPath, config.CpKeyHostKeyPath, config.CpDefaultHostKeyPath, "Known host key file (optional)")
-		flag.StringVar(&cp.LocalHost, config.CpKeyLocalHost, config.CpDefaultLocalHost, "Local address to forward")
-		flag.IntVar(&cp.LocalPort, config.CpKeyLocalPort, config.CpDefaultLocalPort, "Local port to forward")
-		flag.StringVar(&cp.RemoteHost, config.CpKeyRemoteHost, config.CpDefaultRemoteHost, "Remote host to expose (unused)")
-		flag.IntVar(&cp.RemotePort, config.CpKeyRemotePort, config.CpDefaultRemotePort, "Remote port to request (0 = random)")
-		flag.StringVar(&cp.Protocol, config.CpKeyProtocol, config.CpDefaultProtocol, "Forwarding protocol (tcp|udp)")
-		flag.IntVar(&cp.HostKeyLevel, config.CpKeyHostKeyLevel, config.CpDefaultHostKeyLevel, "Host key level (0=no check,1=warn,2=strict)")
-		flag.Var(&cp.AllowedIPs, config.CpKeyAllowedIPs, "Allowed IPs (comma-separated)")
-		flag.Parse()
-	} else {
-		cp = *cpOverride
-	}
-
-	// Validate configuration
+func Run(params *config.ClientParameters) error {
+	cp := *params
 	if err := cp.Validate(); err != nil {
 		return fmt.Errorf("invalid client parameters: %w", err)
 	}
