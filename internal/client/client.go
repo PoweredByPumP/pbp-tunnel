@@ -1,7 +1,6 @@
 package client
 
 import (
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -12,17 +11,8 @@ import (
 	"time"
 
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
+	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"golang.org/x/crypto/ssh"
-)
-
-const (
-	ErrSuccess             uint32 = 0
-	ErrPortUnavailable     uint32 = 1
-	ErrIPNotAllowed        uint32 = 2
-	ErrPortOutOfRange      uint32 = 3
-	ErrInternal            uint32 = 4
-	ErrUnsupportedProtocol uint32 = 5
-	ErrMask                uint32 = 0x80000000
 )
 
 // ClientSession holds state for a running SSH tunnel session
@@ -115,97 +105,32 @@ func Run(cpOverride *config.ClientParameters) error {
 	}
 }
 
-// runSession handles the handshake and incoming forwards for a connected SSH session
+// runSession requests the tunnel, then serves forwarded connections until the SSH connection ends.
 func (s *ClientSession) runSession(cp *config.ClientParameters) error {
-	// 1) Open a channel for handshake
-	ch, reqs, err := s.Connection.OpenChannel("direct-tcpip", nil)
+	transport, err := protocol.ParseTransport(cp.Protocol)
 	if err != nil {
-		return fmt.Errorf("open handshake channel: %w", err)
-	}
-	defer ch.Close()
-	go ssh.DiscardRequests(reqs)
-
-	var hb [4]byte
-
-	// 2) Read handshake response
-	if _, err := io.ReadFull(ch, hb[:]); err != nil {
-		return fmt.Errorf("handshake read error: %w", err)
-	}
-	code := binary.BigEndian.Uint32(hb[:])
-	switch code {
-	case ErrSuccess:
-		log.Printf("[+] Handshake OK")
-	case ErrIPNotAllowed:
-		return fmt.Errorf("server rejected IP: code %d", code)
-	default:
-		return fmt.Errorf("handshake failed with code %d", code)
+		return err
 	}
 
-	// 3) Send whitelist
-	log.Printf("[*] Sending whitelist: %v", cp.AllowedIPs)
-	binary.BigEndian.PutUint32(hb[:], uint32(len(cp.AllowedIPs)))
-	if _, err := ch.Write(hb[:]); err != nil {
-		return fmt.Errorf("send whitelist length: %w", err)
+	controlChannel, requests, err := s.Connection.OpenChannel("direct-tcpip", nil)
+	if err != nil {
+		return fmt.Errorf("open tunnel request channel: %w", err)
 	}
-	for _, ip := range cp.AllowedIPs {
-		data := []byte(ip)
-		var l [4]byte
-		binary.BigEndian.PutUint32(l[:], uint32(len(data)))
-		ch.Write(l[:])
-		ch.Write(data)
-		log.Printf("[+] Whitelist entry sent: %s", ip)
-	}
+	defer controlChannel.Close()
+	go ssh.DiscardRequests(requests)
 
-	// 4) Read whitelist confirmation
-	if _, err := io.ReadFull(ch, hb[:]); err != nil {
-		return fmt.Errorf("whitelist confirm read error: %w", err)
+	log.Printf("[*] Requesting %s tunnel on remote port %d (allowed peers: %v)", transport, cp.RemotePort, cp.AllowedIPs)
+	exposedPort, err := protocol.RequestTunnel(controlChannel, protocol.TunnelRequest{
+		AllowedPeers: cp.AllowedIPs,
+		Transport:    transport,
+		Port:         cp.RemotePort,
+	})
+	if err != nil {
+		return fmt.Errorf("tunnel request: %w", err)
 	}
-	if binary.BigEndian.Uint32(hb[:]) != ErrSuccess {
-		return fmt.Errorf("whitelist rejected by server")
-	}
-	log.Printf("[+] Whitelist accepted by server")
-
-	// 5) Request port
-	protocol := normalizeProtocol(cp.Protocol)
-	log.Printf("[*] Requested protocol: %s", protocol)
-	binary.BigEndian.PutUint32(hb[:], uint32(len(protocol)))
-	if _, err := ch.Write(hb[:]); err != nil {
-		return fmt.Errorf("send protocol length: %w", err)
-	}
-	if _, err := ch.Write([]byte(protocol)); err != nil {
-		return fmt.Errorf("send protocol value: %w", err)
-	}
-
-	log.Printf("[*] Requesting remote port %d", cp.RemotePort)
-	binary.BigEndian.PutUint32(hb[:], uint32(cp.RemotePort))
-	if _, err := ch.Write(hb[:]); err != nil {
-		return fmt.Errorf("send port request: %w", err)
-	}
-
-	// 6) Read assigned port or error
-	if _, err := io.ReadFull(ch, hb[:]); err != nil {
-		return fmt.Errorf("read port response error: %w", err)
-	}
-	val := binary.BigEndian.Uint32(hb[:])
-	if val&ErrMask != 0 {
-		errCode := val &^ ErrMask
-		switch errCode {
-		case ErrPortUnavailable:
-			return fmt.Errorf("server: no available ports")
-		case ErrPortOutOfRange:
-			return fmt.Errorf("server: port out of range")
-		case ErrInternal:
-			return fmt.Errorf("server: internal error")
-		case ErrUnsupportedProtocol:
-			return fmt.Errorf("server: unsupported protocol")
-		default:
-			return fmt.Errorf("server error code %d", errCode)
-		}
-	}
-	s.AssignedPort = int(val)
+	s.AssignedPort = exposedPort
 	log.Printf("[+] Assigned remote port %d (local %s)", s.AssignedPort, s.LocalAddress)
 
-	// 7) Handle forwarded connections
 	go func() {
 		for newCh := range s.Connection.HandleChannelOpen("direct-tcpip") {
 			if !s.Active {
@@ -226,7 +151,7 @@ func (s *ClientSession) runSession(cp *config.ClientParameters) error {
 
 			s.ActiveConnections.Add(1)
 			log.Printf("[*] Forward #%d incoming", id)
-			if protocol == "udp" {
+			if transport == protocol.UDP {
 				go s.handleForwardUDP(ch2, id)
 			} else {
 				go s.handleForwardTCP(ch2, id)
@@ -292,7 +217,7 @@ func (s *ClientSession) handleForwardUDP(ch ssh.Channel, id int) {
 		defer wg.Done()
 		defer localConn.Close()
 		for {
-			packet, err := readFramedPacket(ch)
+			packet, err := protocol.ReadDatagram(ch)
 			if err != nil {
 				if err != io.EOF {
 					log.Printf("[-] UDP read from server for forward #%d: %v", id, err)
@@ -317,7 +242,7 @@ func (s *ClientSession) handleForwardUDP(ch ssh.Channel, id int) {
 				}
 				return
 			}
-			if err := writeFramedPacket(ch, buf[:n]); err != nil {
+			if err := protocol.WriteDatagram(ch, buf[:n]); err != nil {
 				log.Printf("[-] UDP write to server for forward #%d: %v", id, err)
 				return
 			}
@@ -326,41 +251,4 @@ func (s *ClientSession) handleForwardUDP(ch ssh.Channel, id int) {
 
 	wg.Wait()
 	log.Printf("[+] UDP forward #%d closed", id)
-}
-
-func normalizeProtocol(protocol string) string {
-	p := strings.ToLower(strings.TrimSpace(protocol))
-	if p == "udp" {
-		return "udp"
-	}
-	return "tcp"
-}
-
-func writeFramedPacket(w io.Writer, payload []byte) error {
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(payload)))
-	if _, err := w.Write(lenBuf[:]); err != nil {
-		return err
-	}
-	if len(payload) == 0 {
-		return nil
-	}
-	_, err := w.Write(payload)
-	return err
-}
-
-func readFramedPacket(r io.Reader) ([]byte, error) {
-	var lenBuf [4]byte
-	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
-		return nil, err
-	}
-	length := binary.BigEndian.Uint32(lenBuf[:])
-	payload := make([]byte, length)
-	if length == 0 {
-		return payload, nil
-	}
-	if _, err := io.ReadFull(r, payload); err != nil {
-		return nil, err
-	}
-	return payload, nil
 }
