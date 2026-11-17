@@ -1,62 +1,72 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 )
 
-type LogMode int
-
 const (
-	LogBoth LogMode = iota
-	LogFileOnly
-	LogConsoleOnly
+	logToConsole        = "console"
+	logToFile           = "file"
+	logToConsoleAndFile = "both"
 )
 
-func setupLogging(quietMode string, logDirOverride string) {
-	var mode LogMode
+const (
+	defaultLogFile = "/var/log/pbp-tunnel/pbp-tunnel.log"
+	logFileName    = "pbp-tunnel.log"
+)
 
-	switch quietMode {
-	case "file":
-		mode = LogFileOnly
-	case "console":
-		mode = LogConsoleOnly
-	default:
-		mode = LogBoth
-	}
-
-	logDir := logDirOverride
-	if logDir == "" {
-		logDir = "/var/log/pbp-tunnel"
-	}
-
-	cleanLogDir := filepath.Clean(logDir)
-
-	if err := os.MkdirAll(cleanLogDir, 0755); err != nil {
-		log.Fatalf("Failed to create log directory: %v", err)
-	}
-
-	logFile := filepath.Join(cleanLogDir, "pbp-tunnel.log")
-	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+func configureLogging(mode, logFilePath string) error {
+	output, logFile, err := openLogOutput(mode, logFilePath)
 	if err != nil {
-		log.Fatalf("Failed to open log file: %v", err)
+		return err
 	}
-
-	switch mode {
-	case LogFileOnly:
-		log.SetOutput(file)
-	case LogConsoleOnly:
-		log.SetOutput(os.Stdout)
-	default: // LogBoth
-		multiWriter := io.MultiWriter(os.Stdout, file)
-		log.SetOutput(multiWriter)
-	}
-
+	log.SetOutput(output)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	if mode != LogConsoleOnly && mode != LogFileOnly {
-		log.Printf("pbp-tunnel starting - logging to %s", logFile)
+	if logFile != nil {
+		log.Printf("pbp-tunnel starting - logging to %s", logFile.Name())
 	}
+	return nil
+}
+
+// openLogOutput returns where the log goes, and the log file when the mode uses
+// one. The file and its directory are only created by the modes that write to it.
+func openLogOutput(mode, logFilePath string) (output io.Writer, logFile *os.File, err error) {
+	switch mode {
+	case logToConsole:
+		return os.Stdout, nil, nil
+	case logToFile, logToConsoleAndFile:
+		logFile, err := openLogFile(logFilePath)
+		if err != nil {
+			return nil, nil, err
+		}
+		if mode == logToFile {
+			return logFile, logFile, nil
+		}
+		return io.MultiWriter(os.Stdout, logFile), logFile, nil
+	default:
+		return nil, nil, fmt.Errorf("unknown logging mode %q, expected console, file or both", mode)
+	}
+}
+
+// openLogFile appends to path. When path is an existing directory, the log goes
+// to pbp-tunnel.log inside it, as -logfile used to name a directory.
+func openLogFile(path string) (*os.File, error) {
+	if path == "" {
+		path = defaultLogFile
+	}
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		path = filepath.Join(path, logFileName)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create log directory: %w", err)
+	}
+	logFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open log file: %w", err)
+	}
+	return logFile, nil
 }

@@ -227,6 +227,19 @@ Show server-mode flags:
 ./pbp-tunnel server --help
 ```
 
+Global flags go before the command:
+
+```bash
+./pbp-tunnel --logging both --logfile /var/log/pbp-tunnel/pbp-tunnel.log server
+```
+
+| Flag        | Description                                                              |
+|-------------|--------------------------------------------------------------------------|
+| `--logging` | `console` (default), `file` or `both`                                    |
+| `--logfile` | Log file for the `file` and `both` modes; default `/var/log/pbp-tunnel/pbp-tunnel.log`. A directory gets a `pbp-tunnel.log` inside. |
+| `--debug`   | Log the number of goroutines and the memory used every 10 seconds        |
+| `--version` | Print the version and exit                                               |
+
 ---
 
 ## Testing

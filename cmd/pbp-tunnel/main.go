@@ -31,7 +31,9 @@ func main() {
 		fmt.Println("Port-tunnelling utility proudly developed by Powered By PumP.")
 		return
 	}
-	setupLogging(options.logging, options.logFile)
+	if err := configureLogging(options.logging, options.logFile); err != nil {
+		log.Fatalf("Logging error: %v", err)
+	}
 	if options.debug {
 		go logRuntimeStatsEvery(10 * time.Second)
 	}
