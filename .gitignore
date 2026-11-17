@@ -5,3 +5,6 @@
 /out
 /pbp-tunnel*
 /pbp-tunnel*.exe
+
+*.coverprofile
+coverage.out

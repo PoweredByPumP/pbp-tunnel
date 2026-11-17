@@ -11,8 +11,8 @@
             "mode": "debug",
             "program": "${workspaceFolder}/cmd/pbp-tunnel",
             "args": [
-                "client",
-                "--debug=true"
+                "--debug=true",
+                "client"
             ],
             "env": {
                 "PBP_TUNNEL_CONFIG": "${workspaceFolder}/.dev/config-client.json"
