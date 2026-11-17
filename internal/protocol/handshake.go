@@ -23,7 +23,11 @@ const (
 	UDP Transport = "udp"
 )
 
-const maxTransportNameLength = 16
+const (
+	maxTransportNameLength = 16
+	maxAllowedPeers        = 1024
+	maxAllowedPeerLength   = 128
+)
 
 // refusedFlag marks a port response as a refusal; the remaining bits hold the Status.
 const refusedFlag uint32 = 0x80000000
@@ -49,6 +53,9 @@ func ParseTransport(name string) (Transport, error) {
 // RequestTunnel runs the client side of a tunnel request and returns the port the
 // server exposed. A refusal from the server is returned as a Status error.
 func RequestTunnel(conn io.ReadWriter, request TunnelRequest) (exposedPort int, err error) {
+	if err := checkAllowedPeersLimits(request.AllowedPeers); err != nil {
+		return 0, err
+	}
 	if err := expectStatusOK(conn, "greeting"); err != nil {
 		return 0, err
 	}
@@ -135,14 +142,30 @@ func writeAllowedPeers(w io.Writer, allowedPeers []string) error {
 	return nil
 }
 
+func checkAllowedPeersLimits(allowedPeers []string) error {
+	if len(allowedPeers) > maxAllowedPeers {
+		return fmt.Errorf("%w: %d allowed peers, maximum is %d", errLimitExceeded, len(allowedPeers), maxAllowedPeers)
+	}
+	for _, peer := range allowedPeers {
+		if len(peer) > maxAllowedPeerLength {
+			return fmt.Errorf("%w: allowed peer %.20q... is %d bytes, maximum is %d",
+				errLimitExceeded, peer, len(peer), maxAllowedPeerLength)
+		}
+	}
+	return nil
+}
+
 func readAllowedPeers(r io.Reader) ([]string, error) {
 	count, err := readUint32(r)
 	if err != nil {
 		return nil, err
 	}
+	if count > maxAllowedPeers {
+		return nil, fmt.Errorf("%w: %d allowed peers, maximum is %d", errLimitExceeded, count, maxAllowedPeers)
+	}
 	allowedPeers := make([]string, 0, count)
 	for range count {
-		peer, err := readBytes(r, noLengthLimit)
+		peer, err := readBytes(r, maxAllowedPeerLength)
 		if err != nil {
 			return nil, err
 		}
@@ -153,7 +176,7 @@ func readAllowedPeers(r io.Reader) ([]string, error) {
 
 func readTransport(r io.Reader) (Transport, error) {
 	name, err := readBytes(r, maxTransportNameLength)
-	if errors.Is(err, errTooLong) {
+	if errors.Is(err, errLimitExceeded) {
 		return "", fmt.Errorf("%w: %w", StatusUnsupportedTransport, err)
 	}
 	if err != nil {

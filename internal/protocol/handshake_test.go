@@ -197,6 +197,42 @@ func TestParseTransport(t *testing.T) {
 	}
 }
 
+func TestReceiveTunnelRequest_RefusesOversizedAllowedPeers(t *testing.T) {
+	tests := map[string][]byte{
+		"too many peers":  wireBytes(maxAllowedPeers + 1),
+		"peer too long":   wireBytes(1, maxAllowedPeerLength+1),
+		"huge peer count": wireBytes(0xFFFFFFFF),
+	}
+	for name, clientRequest := range tests {
+		t.Run(name, func(t *testing.T) {
+			conn := &scriptedConn{replies: bytes.NewReader(clientRequest)}
+			_, err := ReceiveTunnelRequest(conn)
+			if !errors.Is(err, errLimitExceeded) {
+				t.Errorf("ReceiveTunnelRequest error = %v, want %v", err, errLimitExceeded)
+			}
+		})
+	}
+}
+
+func TestRequestTunnel_RefusesOversizedAllowedPeersBeforeSendingAnything(t *testing.T) {
+	tests := map[string][]string{
+		"too many peers": make([]string, maxAllowedPeers+1),
+		"peer too long":  {strings.Repeat("1", maxAllowedPeerLength+1)},
+	}
+	for name, allowedPeers := range tests {
+		t.Run(name, func(t *testing.T) {
+			conn := &scriptedConn{replies: bytes.NewReader(wireBytes(StatusOK, StatusOK, 8080))}
+			_, err := RequestTunnel(conn, TunnelRequest{AllowedPeers: allowedPeers, Transport: TCP})
+			if !errors.Is(err, errLimitExceeded) {
+				t.Errorf("RequestTunnel error = %v, want %v", err, errLimitExceeded)
+			}
+			if conn.written.Len() != 0 {
+				t.Errorf("client wrote %d bytes before refusing the request", conn.written.Len())
+			}
+		})
+	}
+}
+
 // requestTunnelFrom runs RequestTunnel against a fake server driven by serve.
 //
 // It uses a loopback TCP connection rather than net.Pipe because the server may

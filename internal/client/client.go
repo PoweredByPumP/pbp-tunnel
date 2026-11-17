@@ -233,7 +233,7 @@ func (s *ClientSession) handleForwardUDP(ch ssh.Channel, id int) {
 
 	go func() {
 		defer wg.Done()
-		buf := make([]byte, 64*1024)
+		buf := make([]byte, protocol.MaxDatagramSize)
 		for {
 			n, err := localConn.Read(buf)
 			if err != nil {

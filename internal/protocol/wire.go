@@ -5,15 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 )
 
 // Every value on the wire is either a big-endian uint32 or a byte string
 // prefixed by its length as a uint32.
 
-const noLengthLimit = math.MaxUint32
-
-var errTooLong = errors.New("length exceeds limit")
+// Lengths come from the other side of the connection, so each one is checked
+// against a limit before anything is allocated.
+var errLimitExceeded = errors.New("limit exceeded")
 
 func writeUint32(w io.Writer, value uint32) error {
 	var encoded [4]byte
@@ -50,14 +49,13 @@ func writeBytes(w io.Writer, data []byte) error {
 	return err
 }
 
-// readBytes refuses a length above maxLength before allocating anything.
 func readBytes(r io.Reader, maxLength uint32) ([]byte, error) {
 	length, err := readUint32(r)
 	if err != nil {
 		return nil, err
 	}
 	if length > maxLength {
-		return nil, fmt.Errorf("%w: %d bytes, maximum is %d", errTooLong, length, maxLength)
+		return nil, fmt.Errorf("%w: %d bytes, maximum is %d", errLimitExceeded, length, maxLength)
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(r, data); err != nil {

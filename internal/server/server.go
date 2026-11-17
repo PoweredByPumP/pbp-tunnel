@@ -311,7 +311,7 @@ func (s *ForwardServer) serveUDPForward(sshConn *ssh.ServerConn, channel ssh.Cha
 		}
 	}
 
-	buf := make([]byte, 64*1024)
+	buf := make([]byte, protocol.MaxDatagramSize)
 	for {
 		n, peerAddr, err := pc.ReadFrom(buf)
 		if err != nil {
