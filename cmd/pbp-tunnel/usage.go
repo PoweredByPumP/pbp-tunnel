@@ -26,9 +26,9 @@ func colorize(text, color string) string {
 	return text
 }
 
-func printUsage() {
+func printUsage(globalFlags *flag.FlagSet) {
 	fmt.Println(colorize("Usage:", colorBlue))
-	fmt.Println("  pbp-tunnel [client|server|generate] [flags]")
+	fmt.Println("  pbp-tunnel [global flags] <client|server|generate> [flags]")
 
 	fmt.Println(colorize("Modes:", colorBlue))
 	fmt.Printf("  %s\t%s\n", colorize("client", colorYellow), "Run the client to establish a reverse SSH tunnel")
@@ -36,8 +36,8 @@ func printUsage() {
 	fmt.Printf("  %s\t%s\n", colorize("generate", colorYellow), "Generate a configuration template file")
 
 	fmt.Println()
-	fmt.Println(colorize("Options:", colorBlue))
-	fmt.Printf("  %s\t%s\n", colorize("-h", colorYellow), "Show this help message")
+	fmt.Println(colorize("Global flags:", colorBlue))
+	printFlags(globalFlags)
 
 	fmt.Println()
 	fmt.Println(colorize("To see flags for each mode:", colorBlue))
@@ -47,9 +47,13 @@ func printUsage() {
 
 func printCommandUsage(command string, flags *flag.FlagSet) {
 	fmt.Println(colorize("Usage:", colorBlue))
-	fmt.Printf("  pbp-tunnel %s [flags]\n", command)
+	fmt.Printf("  pbp-tunnel [global flags] %s [flags]\n", command)
 
 	fmt.Println(colorize("Available flags:", colorBlue))
+	printFlags(flags)
+}
+
+func printFlags(flags *flag.FlagSet) {
 	flags.VisitAll(func(f *flag.Flag) {
 		defaultValue := f.DefValue
 		if defaultValue == "" {
