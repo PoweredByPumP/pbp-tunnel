@@ -48,6 +48,32 @@ func TestTCPTunnel_ForwardsTrafficToLocalService(t *testing.T) {
 	}
 }
 
+// Like an HTTP/1.0 server, the local service only answers once the peer has
+// finished sending, so the end of the request must travel through the tunnel.
+func TestTCPTunnel_LocalServiceSeesTheEndOfTheRequest(t *testing.T) {
+	localServicePort := startTCPServiceAnsweringAtEndOfRequest(t)
+	exposedPort := freeTCPPort(t)
+
+	sshPort, serverStopped := startTunnelServer(t, exposedPort)
+	clientStopped := startTunnelClient(t, sshPort, "tcp", localServicePort, exposedPort)
+
+	conn := dialTCPWhenTunnelIsUp(t, exposedPort, serverStopped, clientStopped).(*net.TCPConn)
+	defer conn.Close()
+
+	if _, err := conn.Write([]byte("request")); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.CloseWrite()
+	_ = conn.SetReadDeadline(time.Now().Add(readyTimeout))
+	response, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if string(response) != "response to request" {
+		t.Errorf("response = %q, want %q", response, "response to request")
+	}
+}
+
 func TestTCPTunnel_DisconnectsPeersOutsideAllowedList(t *testing.T) {
 	localServicePort := startTCPEchoService(t)
 	exposedPort := freeTCPPort(t)
@@ -212,6 +238,32 @@ func startTCPEchoService(t *testing.T) int {
 			go func() {
 				defer conn.Close()
 				_, _ = io.Copy(conn, conn)
+			}()
+		}
+	}()
+	return listener.Addr().(*net.TCPAddr).Port
+}
+
+func startTCPServiceAnsweringAtEndOfRequest(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", net.JoinHostPort(loopback, "0"))
+	if err != nil {
+		t.Fatalf("start TCP service: %v", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				request, err := io.ReadAll(conn)
+				if err == nil {
+					_, _ = conn.Write([]byte("response to " + string(request)))
+				}
 			}()
 		}
 	}()

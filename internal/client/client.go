@@ -166,7 +166,7 @@ func (s *ClientSession) handleForwardTCP(ch ssh.Channel, id int) {
 		defer wg.Done()
 		n, _ := io.Copy(localConn, ch)
 		log.Printf("[*] Copied %d bytes to local for forward #%d", n, id)
-		localConn.(*net.TCPConn).CloseRead()
+		localConn.(*net.TCPConn).CloseWrite()
 	}()
 	go func() {
 		defer wg.Done()
