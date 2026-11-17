@@ -23,6 +23,15 @@ func TestClientParameters_Validate(t *testing.T) {
 		{name: "negative remote port", change: func(p *ClientParameters) { p.RemotePort = -1 }, wantErr: "remote_port must be between 0 and 65535"},
 		{name: "remote port too high", change: func(p *ClientParameters) { p.RemotePort = 70000 }, wantErr: "remote_port must be between 0 and 65535"},
 		{name: "unknown protocol", change: func(p *ClientParameters) { p.Protocol = "sctp" }, wantErr: "protocol must be either tcp or udp"},
+		{name: "strict host key check with a known_hosts file", change: func(p *ClientParameters) { p.HostKeyLevel = HostKeyMustBeKnown; p.HostKeyPath = "known_hosts" }},
+		{name: "host key warning without a known_hosts file", change: func(p *ClientParameters) { p.HostKeyLevel = HostKeyWarnIfUnknown }},
+		{
+			name:    "strict host key check without a known_hosts file",
+			change:  func(p *ClientParameters) { p.HostKeyLevel = HostKeyMustBeKnown },
+			wantErr: "host_key_level 2 checks the server against a known_hosts file: set host_key to that file, or host_key_level to 0 to connect without checking",
+		},
+		{name: "host key level too high", change: func(p *ClientParameters) { p.HostKeyLevel = 3 }, wantErr: "host_key_level must be 0 (no check), 1 (warn) or 2 (strict)"},
+		{name: "negative host key level", change: func(p *ClientParameters) { p.HostKeyLevel = -1 }, wantErr: "host_key_level must be 0 (no check), 1 (warn) or 2 (strict)"},
 	}
 
 	for _, tc := range tests {

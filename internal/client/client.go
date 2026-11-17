@@ -12,6 +12,7 @@ import (
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
 	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 const (
@@ -30,14 +31,21 @@ func Run(params *config.ClientParameters) error {
 	if err != nil {
 		return err
 	}
+	sshConfig, err := sshClientConfig(params)
+	if err != nil {
+		return err
+	}
 	serverAddress := net.JoinHostPort(params.Endpoint, strconv.Itoa(params.EndpointPort))
 	localAddress := net.JoinHostPort(params.LocalHost, strconv.Itoa(params.LocalPort))
 
 	for failedAttempts := 0; failedAttempts < maxConnectionAttempts; {
 		log.Printf("[*] Connecting to %s (attempt %d/%d)", serverAddress, failedAttempts+1, maxConnectionAttempts)
-		sshClient, err := connect(params, serverAddress)
+		sshClient, err := ssh.Dial("tcp", serverAddress, sshConfig)
+		if isServerIdentityRejected(err) {
+			return fmt.Errorf("server identity rejected: %w", err)
+		}
 		if err != nil {
-			log.Printf("[-] %v", err)
+			log.Printf("[-] Dial error: %v", err)
 			failedAttempts++
 			if failedAttempts < maxConnectionAttempts {
 				time.Sleep(retryDelay)
@@ -71,16 +79,11 @@ func newTunnelRequest(params *config.ClientParameters) (protocol.TunnelRequest, 
 	return protocol.TunnelRequest{AllowedPeers: allowedPeers, Transport: transport, Port: params.RemotePort}, nil
 }
 
-func connect(params *config.ClientParameters, serverAddress string) (*ssh.Client, error) {
-	sshConfig, err := sshClientConfig(params)
-	if err != nil {
-		return nil, fmt.Errorf("config error: %w", err)
-	}
-	sshClient, err := ssh.Dial("tcp", serverAddress, sshConfig)
-	if err != nil {
-		return nil, fmt.Errorf("dial error: %w", err)
-	}
-	return sshClient, nil
+// isServerIdentityRejected reports a server whose key is missing from, or differs
+// from, the known_hosts file. Trying again would only reach the same server.
+func isServerIdentityRejected(dialErr error) bool {
+	var keyErr *knownhosts.KeyError
+	return errors.As(dialErr, &keyErr)
 }
 
 // shouldReconnect is false when the server refused the tunnel, since asking again

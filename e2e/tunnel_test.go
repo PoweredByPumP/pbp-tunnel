@@ -2,11 +2,15 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +19,8 @@ import (
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
 	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"github.com/poweredbypump/pbp-tunnel/internal/server"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 const (
@@ -87,6 +93,39 @@ func TestTCPTunnel_ClientReconnectsAfterLosingTheServer(t *testing.T) {
 	waitForEchoThroughTunnel(t, exposedPort, readyTimeout, serverStopped, clientStopped)
 	proxy.cutConnections()
 	waitForEchoThroughTunnel(t, exposedPort, reconnectTimeout, serverStopped, clientStopped)
+}
+
+func TestTunnelClient_StrictHostKeyCheckAcceptsTheKnownServer(t *testing.T) {
+	localServicePort := startTCPEchoService(t)
+	exposedPort := freeTCPPort(t)
+	hostKeyPath := filepath.Join(t.TempDir(), "host_ed25519")
+	sshPort, serverStopped := startTunnelServerWithHostKey(t, exposedPort, hostKeyPath)
+
+	params := tunnelClientParameters(sshPort, "tcp", localServicePort, exposedPort)
+	params.HostKeyLevel = config.HostKeyMustBeKnown
+	params.HostKeyPath = knownHostsTrusting(t, sshPort, publicKeyOf(t, hostKeyPath))
+	clientStopped := runTunnelClient(params)
+
+	waitForEchoThroughTunnel(t, exposedPort, readyTimeout, serverStopped, clientStopped)
+}
+
+func TestTunnelClient_StrictHostKeyCheckStopsAtAnUnknownServer(t *testing.T) {
+	exposedPort := freeTCPPort(t)
+	sshPort, _ := startTunnelServer(t, exposedPort)
+
+	params := tunnelClientParameters(sshPort, "tcp", startTCPEchoService(t), exposedPort)
+	params.HostKeyLevel = config.HostKeyMustBeKnown
+	params.HostKeyPath = knownHostsTrusting(t, sshPort, newImpostorKey(t))
+	clientStopped := runTunnelClient(params)
+
+	select {
+	case err := <-clientStopped:
+		if err == nil || !strings.Contains(err.Error(), "server identity rejected") {
+			t.Errorf("client stopped with %v, want a server identity rejection", err)
+		}
+	case <-time.After(readyTimeout):
+		t.Fatalf("client kept trying an unknown server for %v instead of stopping", readyTimeout)
+	}
 }
 
 func TestTCPTunnel_DisconnectsPeersOutsideAllowedList(t *testing.T) {
@@ -165,6 +204,13 @@ func TestUDPTunnel_ForwardsDatagramsToLocalService(t *testing.T) {
 // The server has no shutdown mechanism yet, so it keeps running until the test binary exits.
 func startTunnelServer(t *testing.T, exposedPort int, allowedClients ...string) (sshPort int, stopped <-chan error) {
 	t.Helper()
+	return startTunnelServerWithHostKey(t, exposedPort, filepath.Join(t.TempDir(), "host_ed25519"), allowedClients...)
+}
+
+// startTunnelServerWithHostKey works like startTunnelServer with the host key
+// generated at hostKeyPath, so that a client can be told to trust it.
+func startTunnelServerWithHostKey(t *testing.T, exposedPort int, hostKeyPath string, allowedClients ...string) (sshPort int, stopped <-chan error) {
+	t.Helper()
 	params := &config.ServerParameters{
 		AllowedIPs:         allowedClients,
 		BindAddress:        loopback,
@@ -173,7 +219,7 @@ func startTunnelServer(t *testing.T, exposedPort int, allowedClients ...string) 
 		PortRangeEnd:       exposedPort,
 		Username:           tunnelUser,
 		Password:           tunnelPassword,
-		PrivateEd25519Path: filepath.Join(t.TempDir(), "host_ed25519"),
+		PrivateEd25519Path: hostKeyPath,
 	}
 
 	runResult := make(chan error, 1)
@@ -186,7 +232,12 @@ func startTunnelServer(t *testing.T, exposedPort int, allowedClients ...string) 
 // Like the server, it keeps running until the test binary exits.
 func startTunnelClient(t *testing.T, sshPort int, protocol string, localServicePort, exposedPort int, allowedPeers ...string) <-chan error {
 	t.Helper()
-	params := &config.ClientParameters{
+	return runTunnelClient(tunnelClientParameters(sshPort, protocol, localServicePort, exposedPort, allowedPeers...))
+}
+
+// tunnelClientParameters does not check the server identity; the host key tests opt in.
+func tunnelClientParameters(sshPort int, protocol string, localServicePort, exposedPort int, allowedPeers ...string) *config.ClientParameters {
+	return &config.ClientParameters{
 		AllowedIPs:   allowedPeers,
 		Endpoint:     loopback,
 		EndpointPort: sshPort,
@@ -196,11 +247,51 @@ func startTunnelClient(t *testing.T, sshPort int, protocol string, localServiceP
 		LocalPort:    localServicePort,
 		RemotePort:   exposedPort,
 		Protocol:     protocol,
+		HostKeyLevel: config.HostKeyNotChecked,
 	}
+}
 
+func runTunnelClient(params *config.ClientParameters) <-chan error {
 	runResult := make(chan error, 1)
 	go func() { runResult <- client.Run(params) }()
 	return runResult
+}
+
+// knownHostsTrusting writes a known_hosts file that trusts serverKey for the server on sshPort.
+func knownHostsTrusting(t *testing.T, sshPort int, serverKey ssh.PublicKey) string {
+	t.Helper()
+	address := knownhosts.Normalize(net.JoinHostPort(loopback, strconv.Itoa(sshPort)))
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(path, []byte(knownhosts.Line([]string{address}, serverKey)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func publicKeyOf(t *testing.T, privateKeyPath string) ssh.PublicKey {
+	t.Helper()
+	content, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.ParsePrivateKey(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer.PublicKey()
+}
+
+func newImpostorKey(t *testing.T) ssh.PublicKey {
+	t.Helper()
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshKey, err := ssh.NewPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sshKey
 }
 
 func dialTCPWhenTunnelIsUp(t *testing.T, port int, serverStopped, clientStopped <-chan error) net.Conn {

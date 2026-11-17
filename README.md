@@ -107,8 +107,11 @@ With flags:
   --remote-port 0 \
   --protocol tcp \
   --host-key-level 2 \
-  --host-key ./host_key.pub
+  --host-key ./known_hosts
 ```
+
+By default the client only connects to a server listed in the `known_hosts` file
+given by `--host-key` (see [Server identity](#server-identity)).
 
 ---
 
@@ -152,6 +155,7 @@ another file:
   "type": "client",
   "client": {
     "host_key_level": 2,
+    "host_key": "./known_hosts",
     "endpoint": "myserver.com",
     "port": 52135,
     "username": "myuser",
@@ -299,7 +303,30 @@ go test ./internal/server -v
 
 ## Security Notes
 
-* **Host-key levels** range 0 (none) to 2 (strict).
+### Server identity
+
+The client checks the server host key against an OpenSSH `known_hosts` file, set
+with `--host-key` (`host_key` in the config file). `--host-key-level` decides what
+happens when the key is not in that file:
+
+| Level         | Behavior                                                            |
+|---------------|---------------------------------------------------------------------|
+| `2` (default) | Refuse the server. Without a `known_hosts` file the client does not start. |
+| `1`           | Log a warning and connect anyway.                                   |
+| `0`           | Connect without checking.                                           |
+
+To build the `known_hosts` file, read the public key of the server host key on the
+server, then copy the file to the client:
+
+```bash
+echo "[myserver.com]:52135 $(ssh-keygen -y -f id_rsa)" > known_hosts
+```
+
+A public key file such as `host_key.pub` is not a `known_hosts` file: it lacks the
+server address at the start of the line.
+
+### Other notes
+
 * **IP whitelisting** protects forwarded ports from unwanted peers.
 * **Automatic cleanup** prevents stale port reservations.
 * **Key permissions**: private keys should be `0600`.

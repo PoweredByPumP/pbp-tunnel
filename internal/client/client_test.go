@@ -47,6 +47,7 @@ func TestRun_RejectsInvalidAllowedIPsBeforeConnecting(t *testing.T) {
 	params.EndpointPort = 1
 	params.Username = "user"
 	params.Password = "pass"
+	params.HostKeyLevel = config.HostKeyNotChecked
 	params.AllowedIPs = []string{"10.0.0.1,10.0.0.2"}
 
 	err := Run(params)

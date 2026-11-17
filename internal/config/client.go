@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+// Values of ClientParameters.HostKeyLevel, which decides how the client checks
+// the identity of the server against the known_hosts file in HostKeyPath.
+const (
+	HostKeyNotChecked    = 0
+	HostKeyWarnIfUnknown = 1
+	HostKeyMustBeKnown   = 2
+)
+
 type ClientParameters struct {
 	Endpoint       string `json:"endpoint"`
 	EndpointPort   int    `json:"port"`
@@ -16,10 +24,9 @@ type ClientParameters struct {
 	LocalHost   string `json:"local_host"`
 	LocalPort   int    `json:"local_port"`
 	// RemotePort is the port to expose on the server; 0 lets the server choose.
-	RemotePort int    `json:"remote_port"`
-	Protocol   string `json:"protocol"`
-	// HostKeyLevel is 0 for no check, 1 to warn and 2 to refuse an unknown server.
-	HostKeyLevel int `json:"host_key_level"`
+	RemotePort   int    `json:"remote_port"`
+	Protocol     string `json:"protocol"`
+	HostKeyLevel int    `json:"host_key_level"`
 	// AllowedIPs restricts who may connect to the exposed port; empty allows everyone.
 	AllowedIPs []string `json:"allowed_ips"`
 }
@@ -30,7 +37,7 @@ func DefaultClientParameters() *ClientParameters {
 		LocalHost:    "localhost",
 		LocalPort:    80,
 		Protocol:     "tcp",
-		HostKeyLevel: 2,
+		HostKeyLevel: HostKeyMustBeKnown,
 	}
 }
 
@@ -58,6 +65,13 @@ func (p *ClientParameters) Validate() error {
 	}
 	if protocol := strings.ToLower(p.Protocol); protocol != "tcp" && protocol != "udp" {
 		return fmt.Errorf("protocol must be either tcp or udp")
+	}
+	if p.HostKeyLevel < HostKeyNotChecked || p.HostKeyLevel > HostKeyMustBeKnown {
+		return fmt.Errorf("host_key_level must be 0 (no check), 1 (warn) or 2 (strict)")
+	}
+	if p.HostKeyLevel == HostKeyMustBeKnown && p.HostKeyPath == "" {
+		return fmt.Errorf("host_key_level 2 checks the server against a known_hosts file: " +
+			"set host_key to that file, or host_key_level to 0 to connect without checking")
 	}
 	return nil
 }
