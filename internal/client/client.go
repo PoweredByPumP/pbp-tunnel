@@ -1,11 +1,11 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
@@ -83,6 +83,10 @@ func connect(params *config.ClientParameters, serverAddress string) (*ssh.Client
 	return sshClient, nil
 }
 
+// shouldReconnect is false when the server refused the tunnel, since asking again
+// would get the same answer. A session ending for any other reason, such as the
+// server restarting or the network failing, is worth a new connection.
 func shouldReconnect(sessionErr error) bool {
-	return sessionErr == nil || strings.Contains(sessionErr.Error(), "An existing connection was forcibly closed by the remote host")
+	var refusal protocol.Status
+	return !errors.As(sessionErr, &refusal)
 }

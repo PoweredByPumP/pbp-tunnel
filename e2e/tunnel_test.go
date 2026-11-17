@@ -7,6 +7,7 @@ import (
 	"net"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,8 @@ const (
 	tunnelUser     = "e2e-user"
 	tunnelPassword = "e2e-password"
 	readyTimeout   = 10 * time.Second
+	// reconnectTimeout leaves room for the 5 s the client waits before reconnecting.
+	reconnectTimeout = 20 * time.Second
 )
 
 func TestTCPTunnel_ForwardsTrafficToLocalService(t *testing.T) {
@@ -72,6 +75,18 @@ func TestTCPTunnel_LocalServiceSeesTheEndOfTheRequest(t *testing.T) {
 	if string(response) != "response to request" {
 		t.Errorf("response = %q, want %q", response, "response to request")
 	}
+}
+
+func TestTCPTunnel_ClientReconnectsAfterLosingTheServer(t *testing.T) {
+	localServicePort := startTCPEchoService(t)
+	exposedPort := freeTCPPort(t)
+	sshPort, serverStopped := startTunnelServer(t, exposedPort)
+	proxy := startCuttableProxy(t, sshPort)
+	clientStopped := startTunnelClient(t, proxy.port(), "tcp", localServicePort, exposedPort)
+
+	waitForEchoThroughTunnel(t, exposedPort, readyTimeout, serverStopped, clientStopped)
+	proxy.cutConnections()
+	waitForEchoThroughTunnel(t, exposedPort, reconnectTimeout, serverStopped, clientStopped)
 }
 
 func TestTCPTunnel_DisconnectsPeersOutsideAllowedList(t *testing.T) {
@@ -202,6 +217,95 @@ func dialTCPWhenTunnelIsUp(t *testing.T, port int, serverStopped, clientStopped 
 	}
 	t.Fatalf("tunnel did not expose %s within %v", address, readyTimeout)
 	return nil
+}
+
+// waitForEchoThroughTunnel retries a full echo round trip, so that a stale listener
+// left by a dead tunnel does not count as a working one.
+func waitForEchoThroughTunnel(t *testing.T, port int, timeout time.Duration, serverStopped, clientStopped <-chan error) {
+	t.Helper()
+	address := net.JoinHostPort(loopback, strconv.Itoa(port))
+	message := []byte("ping")
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		failIfStopped(t, serverStopped, clientStopped)
+		if echoes(address, message) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("no echo through the tunnel on %s within %v", address, timeout)
+}
+
+func echoes(address string, message []byte) bool {
+	conn, err := net.DialTimeout("tcp", address, 200*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(time.Second))
+	if _, err := conn.Write(message); err != nil {
+		return false
+	}
+	echoed := make([]byte, len(message))
+	_, err = io.ReadFull(conn, echoed)
+	return err == nil && bytes.Equal(echoed, message)
+}
+
+// cuttableProxy relays TCP connections to a target until cutConnections drops
+// them all, like a network failure between the client and the server.
+type cuttableProxy struct {
+	listener net.Listener
+
+	mu    sync.Mutex
+	conns []net.Conn
+}
+
+func startCuttableProxy(t *testing.T, targetPort int) *cuttableProxy {
+	t.Helper()
+	listener, err := net.Listen("tcp", net.JoinHostPort(loopback, "0"))
+	if err != nil {
+		t.Fatalf("start proxy: %v", err)
+	}
+	proxy := &cuttableProxy{listener: listener}
+	t.Cleanup(func() { listener.Close(); proxy.cutConnections() })
+
+	target := net.JoinHostPort(loopback, strconv.Itoa(targetPort))
+	go func() {
+		for {
+			clientConn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			targetConn, err := net.Dial("tcp", target)
+			if err != nil {
+				clientConn.Close()
+				continue
+			}
+			proxy.track(clientConn, targetConn)
+			go func() { _, _ = io.Copy(targetConn, clientConn); targetConn.Close() }()
+			go func() { _, _ = io.Copy(clientConn, targetConn); clientConn.Close() }()
+		}
+	}()
+	return proxy
+}
+
+func (p *cuttableProxy) port() int {
+	return p.listener.Addr().(*net.TCPAddr).Port
+}
+
+func (p *cuttableProxy) track(conns ...net.Conn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.conns = append(p.conns, conns...)
+}
+
+func (p *cuttableProxy) cutConnections() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, conn := range p.conns {
+		conn.Close()
+	}
+	p.conns = nil
 }
 
 func waitForTCPListener(t *testing.T, port int, stopped <-chan error) {
