@@ -2,11 +2,7 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-
-	"github.com/poweredbypump/pbp-tunnel/internal/util"
 )
 
 const DefaultEndpointPort int = 52135
@@ -198,61 +194,5 @@ func (sp *ServerParameters) Validate() error {
 	if sp.PrivateRsaPath == "" && sp.PrivateEcdsaPath == "" && sp.PrivateEd25519Path == "" {
 		return fmt.Errorf("at least one host key path must be provided")
 	}
-
-	err := sp.AssertHostKeyOrGenerate()
-	if err != nil {
-		return fmt.Errorf("failed to assert or generate host key: %v", err)
-	}
-
-	return nil
-}
-
-func (sp *ServerParameters) AssertHostKeyOrGenerate() error {
-
-	if sp.PrivateRsaPath != "" {
-		if _, err := os.Stat(sp.PrivateRsaPath); err != nil {
-			cleanPath := filepath.Clean(sp.PrivateRsaPath)
-
-			if err := os.MkdirAll(filepath.Dir(cleanPath), 0755); err != nil {
-				return fmt.Errorf("failed to create directory for RSA key: %v", err)
-			}
-
-			_, err = util.GenerateAndSavePrivateKeyToFile(cleanPath, "rsa")
-			if err != nil {
-				return fmt.Errorf("failed to generate RSA key: %v", err)
-			}
-		}
-	}
-
-	if sp.PrivateEcdsaPath != "" {
-		if _, err := os.Stat(sp.PrivateEcdsaPath); err != nil {
-			cleanPath := filepath.Clean(sp.PrivateEcdsaPath)
-
-			if err := os.MkdirAll(filepath.Dir(cleanPath), 0755); err != nil {
-				return fmt.Errorf("failed to create directory for ECDSA key: %v", err)
-			}
-
-			_, err = util.GenerateAndSavePrivateKeyToFile(cleanPath, "ecdsa")
-			if err != nil {
-				return fmt.Errorf("failed to generate ECDSA key: %v", err)
-			}
-		}
-	}
-
-	if sp.PrivateEd25519Path != "" {
-		if _, err := os.Stat(sp.PrivateEd25519Path); err != nil {
-			cleanPath := filepath.Clean(sp.PrivateEd25519Path)
-
-			if err := os.MkdirAll(filepath.Dir(cleanPath), 0755); err != nil {
-				return fmt.Errorf("failed to create directory for Ed25519 key: %v", err)
-			}
-
-			_, err = util.GenerateAndSavePrivateKeyToFile(cleanPath, "ed25519")
-			if err != nil {
-				return fmt.Errorf("failed to generate Ed25519 key: %v", err)
-			}
-		}
-	}
-
 	return nil
 }

@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-
-	"github.com/poweredbypump/pbp-tunnel/internal/util"
 )
 
 func TestGetEnvValue(t *testing.T) {
@@ -250,8 +248,6 @@ func TestLoadClientConfig_MissingAuth(t *testing.T) {
 }
 
 func TestLoadServerConfig_ValidComplete(t *testing.T) {
-	tempDir := makeTempDir(t)
-
 	// Test with a complete valid server configuration
 	os.Clearenv()
 	t.Setenv("PBP_TUNNEL_TYPE", "server")
@@ -262,9 +258,6 @@ func TestLoadServerConfig_ValidComplete(t *testing.T) {
 	t.Setenv("PBP_TUNNEL_USERNAME", "user")
 	t.Setenv("PBP_TUNNEL_PASSWORD", "fake")
 	t.Setenv("PBP_TUNNEL_PRIVATE_RSA_PATH", "id_rsa")
-
-	util.GenerateAndSavePrivateKeyToFile(filepath.Join(tempDir, "id_rsa"), "rsa")
-	defer os.Remove("id_rsa")
 
 	serverCfg := LoadServerConfig()
 	if serverCfg == nil {

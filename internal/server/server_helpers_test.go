@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"net"
 	"strings"
@@ -10,7 +12,6 @@ import (
 	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
 	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
-	"github.com/poweredbypump/pbp-tunnel/internal/util"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -27,9 +28,9 @@ func TestRun_InvalidParameters(t *testing.T) {
 func newTestSSHConfigs(t *testing.T) (*ssh.ServerConfig, *ssh.ClientConfig) {
 	t.Helper()
 
-	privateKey, err := util.GenerateED25519PrivateKey()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatalf("GenerateED25519PrivateKey returned error: %v", err)
+		t.Fatalf("ed25519.GenerateKey: %v", err)
 	}
 
 	signer, err := ssh.NewSignerFromKey(privateKey)

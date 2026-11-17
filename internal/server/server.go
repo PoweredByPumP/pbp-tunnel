@@ -11,6 +11,7 @@ import (
 
 	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
+	"github.com/poweredbypump/pbp-tunnel/internal/hostkey"
 	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"golang.org/x/crypto/ssh"
 )
@@ -62,6 +63,9 @@ func Run(spOverride *config.ServerParameters) error {
 	if err != nil {
 		return fmt.Errorf("invalid server parameters: allowed IPs: %w", err)
 	}
+	if err := generateMissingHostKeys(&sp); err != nil {
+		return err
+	}
 	// 2) Build SSH config
 	sshCfg, addr, err := config.GetServerConfig(&sp)
 	if err != nil {
@@ -94,6 +98,30 @@ func Run(spOverride *config.ServerParameters) error {
 		}
 		go srv.handleSSHConnection(nc)
 	}
+}
+
+func generateMissingHostKeys(params *config.ServerParameters) error {
+	hostKeys := []struct {
+		path      string
+		algorithm hostkey.Algorithm
+	}{
+		{params.PrivateRsaPath, hostkey.RSA},
+		{params.PrivateEcdsaPath, hostkey.ECDSA},
+		{params.PrivateEd25519Path, hostkey.Ed25519},
+	}
+	for _, hostKey := range hostKeys {
+		if hostKey.path == "" {
+			continue
+		}
+		created, err := hostkey.EnsureExists(hostKey.path, hostKey.algorithm)
+		if err != nil {
+			return fmt.Errorf("generate %s host key at %s: %w", hostKey.algorithm, hostKey.path, err)
+		}
+		if created {
+			log.Printf("[+] Generated %s host key at %s", hostKey.algorithm, hostKey.path)
+		}
+	}
+	return nil
 }
 
 // handleSSHConnection manages SSH handshake and channels
