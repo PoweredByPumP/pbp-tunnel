@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -67,10 +68,11 @@ func Run(spOverride *config.ServerParameters) error {
 		return err
 	}
 	// 2) Build SSH config
-	sshCfg, addr, err := config.GetServerConfig(&sp)
+	sshCfg, err := sshServerConfig(&sp)
 	if err != nil {
 		return fmt.Errorf("failed to build server config: %w", err)
 	}
+	addr := net.JoinHostPort(sp.BindAddress, strconv.Itoa(sp.BindPort))
 	// 3) Listen
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

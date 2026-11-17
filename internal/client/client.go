@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,15 +61,16 @@ func Run(cpOverride *config.ClientParameters) error {
 		retryDelay = 5 * time.Second
 	)
 	retry := 1
+	serverAddress := net.JoinHostPort(cp.Endpoint, strconv.Itoa(cp.EndpointPort))
 
 	for {
-		log.Printf("[*] Connecting to %s:%d (attempt %d/%d)", cp.Endpoint, cp.EndpointPort, retry, maxRetries)
+		log.Printf("[*] Connecting to %s (attempt %d/%d)", serverAddress, retry, maxRetries)
 
-		sshCfg, addr, err := config.GetClientConfig(&cp)
+		sshCfg, err := sshClientConfig(&cp)
 		if err != nil {
 			log.Printf("[-] Config error: %v", err)
 		} else {
-			clientConn, err := ssh.Dial("tcp", addr, sshCfg)
+			clientConn, err := ssh.Dial("tcp", serverAddress, sshCfg)
 			if err != nil {
 				log.Printf("[-] Dial error: %v", err)
 			} else {

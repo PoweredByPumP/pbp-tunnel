@@ -1,60 +1,17 @@
-package config
+package server
 
 import (
 	"fmt"
 	"log"
 	"os"
 
+	"github.com/poweredbypump/pbp-tunnel/internal/config"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-// buildSSHClientConfig creates ssh.ClientConfig from ClientParameters\
-func buildSSHClientConfig(params *ClientParameters) (*ssh.ClientConfig, error) {
-	authMethods := []ssh.AuthMethod{}
-
-	if params.Password != "" {
-		authMethods = append(authMethods, ssh.Password(params.Password))
-	}
-
-	if params.PrivateKeyPath != "" {
-		key, err := os.ReadFile(params.PrivateKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("read private key: %w", err)
-		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			return nil, fmt.Errorf("parse private key: %w", err)
-		}
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
-	}
-
-	hostKeyCallback := ssh.InsecureIgnoreHostKey()
-	if params.HostKeyPath != "" {
-		callback, err := knownhosts.New(params.HostKeyPath)
-		if err == nil {
-			hostKeyCallback = callback
-		}
-	}
-	return &ssh.ClientConfig{
-		User:            params.Username,
-		Auth:            authMethods,
-		HostKeyCallback: hostKeyCallback,
-	}, nil
-}
-
-// GetClientConfig returns an SSH client config and target address
-func GetClientConfig(params *ClientParameters) (*ssh.ClientConfig, string, error) {
-	sshCfg, err := buildSSHClientConfig(params)
-	if err != nil {
-		return nil, "", err
-	}
-	addr := fmt.Sprintf("%s:%d", params.Endpoint, params.EndpointPort)
-	return sshCfg, addr, nil
-}
-
-// buildSSHServerConfig creates ssh.ServerConfig from ServerParameters
-func buildSSHServerConfig(params *ServerParameters) (*ssh.ServerConfig, error) {
+// sshServerConfig accepts the configured user with its password, a key from the
+// authorized keys file, or both.
+func sshServerConfig(params *config.ServerParameters) (*ssh.ServerConfig, error) {
 	serverCfg := &ssh.ServerConfig{}
 
 	if params.Password != "" {
@@ -122,14 +79,4 @@ func buildSSHServerConfig(params *ServerParameters) (*ssh.ServerConfig, error) {
 	}
 
 	return serverCfg, nil
-}
-
-// GetServerConfig returns an SSH server config and listen address
-func GetServerConfig(params *ServerParameters) (*ssh.ServerConfig, string, error) {
-	sshCfg, err := buildSSHServerConfig(params)
-	if err != nil {
-		return nil, "", err
-	}
-	addr := fmt.Sprintf("%s:%d", params.BindAddress, params.BindPort)
-	return sshCfg, addr, nil
 }
