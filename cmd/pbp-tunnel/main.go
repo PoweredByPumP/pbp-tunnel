@@ -73,7 +73,7 @@ func main() {
 	case "server":
 		runServer(os.Args[2:])
 	case "generate":
-		if err := config.GenerateConfigTemplate(); err != nil {
+		if err := config.GenerateConfigFile(os.Stdin, os.Stdout); err != nil {
 			log.Fatalf("Error generating config template: %v", err)
 		}
 	default:

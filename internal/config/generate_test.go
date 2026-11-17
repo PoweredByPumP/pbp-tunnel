@@ -2,198 +2,117 @@ package config
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-// helper to reset and capture stdin
-type stdinHelper struct {
-	old *os.File
-	r   *os.File
-}
-
-func newStdinHelper(input string) *stdinHelper {
-	r, w, _ := os.Pipe()
-	w.WriteString(input)
-	w.Close()
-	return &stdinHelper{old: os.Stdin, r: r}
-}
-
-func (h *stdinHelper) restore() {
-	os.Stdin = h.old
-}
-
-func withStdin(input string, fn func()) {
-	help := newStdinHelper(input)
-	os.Stdin = help.r
-	fn()
-	help.restore()
-}
-
-const tempDirPrefix = ".pbp-tunnel_test"
-
-// makeTempDir creates a temp directory under the current working directory to avoid permission issues on Windows env
-func makeTempDir(t *testing.T) string {
-	userDir, _ := os.Getwd()
-
-	dir, err := os.MkdirTemp(userDir, tempDirPrefix)
-	if err != nil {
-		t.Fatalf("failed to create temp dir under current directory: %v", err)
+func TestGenerateConfigFile_WritesClientAnswers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "client.json")
+	answers := []string{
+		"client", "1", "tunnel.example.com", "2222", "alice", `p&ss<w>"rd\`,
+		"127.0.0.1", "3000", "localhost", "40000", "udp", path,
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	return dir
-}
 
-func TestAsk_DefaultAndCustom(t *testing.T) {
-	// Default when blank
-	withStdin("\n", func() {
-		val := ask("prompt?", "def")
-		if val != "def" {
-			t.Errorf("ask default = %q; want %q", val, "def")
-		}
-	})
-	// Custom input
-	withStdin("custom\n", func() {
-		val := ask("prompt?", "def")
-		if val != "custom" {
-			t.Errorf("ask custom = %q; want %q", val, "custom")
-		}
-	})
-}
+	if err := GenerateConfigFile(answersReader(answers...), io.Discard); err != nil {
+		t.Fatalf("GenerateConfigFile: %v", err)
+	}
 
-func TestAskInt_DefaultAndCustom(t *testing.T) {
-	// Default when blank
-	withStdin("\n", func() {
-		i := askInt("number?", 42)
-		if i != 42 {
-			t.Errorf("askInt default = %d; want %d", i, 42)
-		}
-	})
-	// Valid integer
-	withStdin("7\n", func() {
-		i := askInt("number?", 42)
-		if i != 7 {
-			t.Errorf("askInt custom = %d; want %d", i, 7)
-		}
-	})
-	// Invalid integer falls back
-	withStdin("bad\n", func() {
-		i := askInt("number?", 42)
-		if i != 42 {
-			t.Errorf("askInt invalid = %d; want %d", i, 42)
-		}
-	})
-}
-
-func TestGenerateConfigTemplate_ClientDefaults(t *testing.T) {
-	// All blank inputs to use defaults
-	inputs := strings.Repeat("\n", 12)
-	dir := makeTempDir(t)
-
-	oldWd, _ := os.Getwd()
-	err := os.Chdir(dir)
-	if err != nil {
-		t.Fatalf("failed to change working dir: %v", err)
+	want := AppConfig{Type: ModeClient, Client: &ClientParameters{
+		HostKeyLevel: 1, Endpoint: "tunnel.example.com", EndpointPort: 2222,
+		Username: "alice", Password: `p&ss<w>"rd\`,
+		LocalHost: "127.0.0.1", LocalPort: 3000, RemoteHost: "localhost", RemotePort: 40000,
+		Protocol: "udp",
+	}}
+	if got := readGeneratedFile(t, path); !reflect.DeepEqual(got, want) {
+		t.Errorf("generated config = %+v, want %+v", got.Client, want.Client)
 	}
-	defer os.Chdir(oldWd)
-
-	withStdin(inputs, func() {
-		err := GenerateConfigTemplate()
-		if err != nil {
-			t.Fatalf("GenerateConfigTemplate error: %v", err)
-		}
-	})
-
-	// Read and verify output
-	out := filepath.Join(dir, "config.json")
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatalf("ReadFile error: %v", err)
-	}
-	var cfg AppConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-	if cfg.Type != "client" {
-		t.Errorf("Type = %q; want %q", cfg.Type, "client")
-	}
-	if cfg.Client == nil {
-		t.Fatal("Client section missing")
-	}
-	// Check a few defaults
-	if cfg.Client.Endpoint != "127.0.0.1" {
-		t.Errorf("Endpoint = %q; want %q", cfg.Client.Endpoint, "127.0.0.1")
-	}
-	if cfg.Client.HostKeyLevel != 0 {
-		t.Errorf("HostKeyLevel = %d; want %d", cfg.Client.HostKeyLevel, 0)
-	}
-	if cfg.Client.LocalPort != 8080 {
-		t.Errorf("LocalPort = %d; want %d", cfg.Client.LocalPort, 8080)
-	}
-	if cfg.Client.Protocol != "tcp" {
-		t.Errorf("Protocol = %q; want %q", cfg.Client.Protocol, "tcp")
+	if content, _ := os.ReadFile(path); !strings.Contains(string(content), `"p&ss<w>\"rd\\"`) {
+		t.Errorf("the password is not written as a person would type it:\n%s", content)
 	}
 }
 
-func TestWriteConfigFile_KeepsSpecialCharactersIntact(t *testing.T) {
-	path := filepath.Join(makeTempDir(t), "config.json")
-	password := `p&ss<word>"'\`
-	written := AppConfig{Type: "server", Server: &ServerParameters{Password: password, AllowedIPs: []string{"10.0.0.0/8"}}}
-
-	if err := writeConfigFile(path, written); err != nil {
-		t.Fatalf("writeConfigFile: %v", err)
+func TestGenerateConfigFile_WritesServerAnswers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.json")
+	answers := []string{
+		"server", "127.0.0.1", "2222", "40000", "40100", "alice", "secret",
+		"/etc/pbp-tunnel/host_rsa", "10.0.0.1, 192.168.0.0/16", path,
 	}
 
-	data, err := os.ReadFile(path)
+	if err := GenerateConfigFile(answersReader(answers...), io.Discard); err != nil {
+		t.Fatalf("GenerateConfigFile: %v", err)
+	}
+
+	want := AppConfig{Type: ModeServer, Server: &ServerParameters{
+		BindAddress: "127.0.0.1", BindPort: 2222, PortRangeStart: 40000, PortRangeEnd: 40100,
+		Username: "alice", Password: "secret", PrivateRsaPath: "/etc/pbp-tunnel/host_rsa",
+		AllowedIPs: []string{"10.0.0.1", "192.168.0.0/16"},
+	}}
+	if got := readGeneratedFile(t, path); !reflect.DeepEqual(got, want) {
+		t.Errorf("generated config = %+v, want %+v", got.Server, want.Server)
+	}
+}
+
+func TestGenerateConfigFile_EmptyAnswersKeepTheSuggestedValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	emptyAnswers := make([]string, 11)
+
+	if err := GenerateConfigFile(answersReader(append(emptyAnswers, path)...), io.Discard); err != nil {
+		t.Fatalf("GenerateConfigFile: %v", err)
+	}
+
+	got := readGeneratedFile(t, path)
+	if got.Type != ModeClient || got.Client.Endpoint != "127.0.0.1" || got.Client.EndpointPort != DefaultPort || got.Client.Protocol != "tcp" {
+		t.Errorf("generated config = %+v, want the suggested client values", got.Client)
+	}
+}
+
+func TestGenerateConfigFile_InvalidNumberKeepsTheSuggestedValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	answers := []string{"server", "", "not-a-port", "", "", "", "", "", "", path}
+	var questions strings.Builder
+
+	if err := GenerateConfigFile(answersReader(answers...), &questions); err != nil {
+		t.Fatalf("GenerateConfigFile: %v", err)
+	}
+
+	if got := readGeneratedFile(t, path); got.Server.BindPort != DefaultPort {
+		t.Errorf("BindPort = %d, want %d", got.Server.BindPort, DefaultPort)
+	}
+	if !strings.Contains(questions.String(), "Invalid number") {
+		t.Errorf("the user was not told the number was invalid:\n%s", questions.String())
+	}
+}
+
+func TestGenerateConfigFile_RejectsUnknownMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+
+	err := GenerateConfigFile(answersReader("proxy", path), io.Discard)
+
+	if err == nil {
+		t.Error("GenerateConfigFile accepted an unknown mode")
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Error("a config file was written for an unknown mode")
+	}
+}
+
+func answersReader(answers ...string) io.Reader {
+	return strings.NewReader(strings.Join(answers, "\n") + "\n")
+}
+
+func readGeneratedFile(t *testing.T, path string) AppConfig {
+	t.Helper()
+	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var read AppConfig
-	if err := json.Unmarshal(data, &read); err != nil {
-		t.Fatalf("generated file is not valid JSON: %v\n%s", err, data)
+	var config AppConfig
+	if err := json.Unmarshal(content, &config); err != nil {
+		t.Fatalf("generated file is not valid JSON: %v\n%s", err, content)
 	}
-	if read.Server == nil || read.Server.Password != password {
-		t.Errorf("password read back = %+v, want %q", read.Server, password)
-	}
-}
-
-func TestGenerateConfigTemplate_ServerDefaults(t *testing.T) {
-	// First answer 'server', then blanks
-	inputs := "server\n" + strings.Repeat("\n", 8)
-	dir := makeTempDir(t)
-	oldWd, _ := os.Getwd()
-	err := os.Chdir(dir)
-	if err != nil {
-		t.Fatalf("failed to change working dir: %v", err)
-	}
-	defer os.Chdir(oldWd)
-
-	withStdin(inputs, func() {
-		err := GenerateConfigTemplate()
-		if err != nil {
-			t.Fatalf("GenerateConfigTemplate error: %v", err)
-		}
-	})
-
-	out := filepath.Join(dir, "config.json")
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatalf("ReadFile error: %v", err)
-	}
-	var cfg AppConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-	if cfg.Type != "server" {
-		t.Errorf("Type = %q; want %q", cfg.Type, "server")
-	}
-	if cfg.Server == nil {
-		t.Fatal("Server section missing")
-	}
-	// Check a default bind address
-	if cfg.Server.BindAddress != "0.0.0.0" {
-		t.Errorf("BindAddress = %q; want %q", cfg.Server.BindAddress, "0.0.0.0")
-	}
+	return config
 }
