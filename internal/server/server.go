@@ -1,360 +1,77 @@
 package server
 
 import (
+	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/poweredbypump/pbp-tunnel/internal/allowlist"
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
-	"github.com/poweredbypump/pbp-tunnel/internal/hostkey"
-	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"golang.org/x/crypto/ssh"
 )
 
-type ForwardServer struct {
-	sshConfig      *ssh.ServerConfig
+// Server accepts SSH clients and exposes one of its ports for each of them.
+type Server struct {
+	sshConfig *ssh.ServerConfig
+	// bindAddress is where the exposed ports listen.
 	bindAddress    string
 	allowedClients allowlist.List
 	ports          *portPool
 }
 
-// Run starts the SSH reverse-tunnel server
 func Run(params *config.ServerParameters) error {
-	sp := *params
-	if err := sp.Validate(); err != nil {
-		return fmt.Errorf("invalid server parameters: %w", err)
-	}
-	allowedClients, err := allowlist.Parse(sp.AllowedIPs)
+	server, err := newServer(params)
 	if err != nil {
-		return fmt.Errorf("invalid server parameters: allowed IPs: %w", err)
-	}
-	if err := generateMissingHostKeys(&sp); err != nil {
 		return err
 	}
-	// 2) Build SSH config
-	sshCfg, err := sshServerConfig(&sp)
+	address := net.JoinHostPort(params.BindAddress, strconv.Itoa(params.BindPort))
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		return fmt.Errorf("failed to build server config: %w", err)
+		return fmt.Errorf("failed to listen on %s: %w", address, err)
 	}
-	addr := net.JoinHostPort(sp.BindAddress, strconv.Itoa(sp.BindPort))
-	// 3) Listen
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", addr, err)
-	}
-	defer ln.Close()
-	log.Printf("[+] SSH server listening on %s", addr)
+	defer listener.Close()
+	log.Printf("[+] SSH server listening on %s", address)
+	return server.serve(listener)
+}
 
-	srv := &ForwardServer{
-		sshConfig:      sshCfg,
-		bindAddress:    sp.BindAddress,
-		allowedClients: allowedClients,
-		ports:          newPortPool(sp.PortRangeStart, sp.PortRangeEnd),
+func newServer(params *config.ServerParameters) (*Server, error) {
+	if err := params.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid server parameters: %w", err)
 	}
-	// 4) Accept loop
+	allowedClients, err := allowlist.Parse(params.AllowedIPs)
+	if err != nil {
+		return nil, fmt.Errorf("invalid server parameters: allowed IPs: %w", err)
+	}
+	if err := generateMissingHostKeys(params); err != nil {
+		return nil, err
+	}
+	sshConfig, err := sshServerConfig(params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build server config: %w", err)
+	}
+	return &Server{
+		sshConfig:      sshConfig,
+		bindAddress:    params.BindAddress,
+		allowedClients: allowedClients,
+		ports:          newPortPool(params.PortRangeStart, params.PortRangeEnd),
+	}, nil
+}
+
+// serve handles every client accepted on listener until listener is closed.
+func (s *Server) serve(listener net.Listener) error {
 	for {
-		nc, err := ln.Accept()
+		conn, err := listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return nil
+		}
 		if err != nil {
 			log.Printf("[-] Accept error: %v", err)
 			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		go srv.handleSSHConnection(nc)
-	}
-}
-
-func generateMissingHostKeys(params *config.ServerParameters) error {
-	hostKeys := []struct {
-		path      string
-		algorithm hostkey.Algorithm
-	}{
-		{params.PrivateRsaPath, hostkey.RSA},
-		{params.PrivateEcdsaPath, hostkey.ECDSA},
-		{params.PrivateEd25519Path, hostkey.Ed25519},
-	}
-	for _, hostKey := range hostKeys {
-		if hostKey.path == "" {
-			continue
-		}
-		created, err := hostkey.EnsureExists(hostKey.path, hostKey.algorithm)
-		if err != nil {
-			return fmt.Errorf("generate %s host key at %s: %w", hostKey.algorithm, hostKey.path, err)
-		}
-		if created {
-			log.Printf("[+] Generated %s host key at %s", hostKey.algorithm, hostKey.path)
-		}
-	}
-	return nil
-}
-
-// handleSSHConnection manages SSH handshake and channels
-func (s *ForwardServer) handleSSHConnection(nc net.Conn) {
-	defer nc.Close()
-	sshConn, chans, reqs, err := ssh.NewServerConn(nc, s.sshConfig)
-	if err != nil {
-		log.Printf("[-] SSH handshake failed: %v", err)
-		return
-	}
-	defer sshConn.Close()
-	go ssh.DiscardRequests(reqs)
-
-	log.Printf("[+] New SSH connection from %s", sshConn.RemoteAddr())
-	for newCh := range chans {
-		if newCh.ChannelType() != "direct-tcpip" {
-			newCh.Reject(ssh.UnknownChannelType, "unsupported channel type")
-			continue
-		}
-		ch, reqs2, err := newCh.Accept()
-		if err != nil {
-			log.Printf("[-] Accept channel failed: %v", err)
-			continue
-		}
-		go ssh.DiscardRequests(reqs2)
-		s.handleChannel(sshConn, ch)
-	}
-}
-
-// handleChannel answers a tunnel request, then forwards traffic until the client disconnects.
-func (s *ForwardServer) handleChannel(sshConn *ssh.ServerConn, channel ssh.Channel) {
-	defer channel.Close()
-
-	client := sshConn.RemoteAddr()
-	if !s.allowedClients.Allows(client) {
-		_ = protocol.RejectPeer(channel)
-		log.Printf("[-] Tunnel request from %s rejected: IP not allowed", client)
-		return
-	}
-
-	request, err := protocol.ReceiveTunnelRequest(channel)
-	if err != nil {
-		log.Printf("[-] Tunnel request from %s failed: %v", client, err)
-		return
-	}
-	log.Printf("[*] Tunnel request from %s: transport=%s port=%d allowed peers=%v",
-		client, request.Transport, request.Port, request.AllowedPeers)
-
-	port, err := s.ports.Reserve(request.Port)
-	if err != nil {
-		_ = protocol.RefuseTunnel(channel, err)
-		log.Printf("[-] Port assignment failed: %v", err)
-		return
-	}
-	log.Printf("[+] Assigned port %d", port)
-
-	if request.Transport == protocol.UDP {
-		s.serveUDPForward(sshConn, channel, request.AllowedPeers, port)
-	} else {
-		s.serveTCPForward(sshConn, channel, request.AllowedPeers, port)
-	}
-
-	s.ports.Release(port)
-	log.Printf("[*] Client disconnected, freed port %d", port)
-}
-
-func (s *ForwardServer) serveTCPForward(sshConn *ssh.ServerConn, channel ssh.Channel, allowedPeers allowlist.List, port int) {
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", s.bindAddress, port))
-	if err != nil {
-		_ = protocol.RefuseTunnel(channel, protocol.StatusInternalError)
-		log.Printf("[-] Bind TCP port %d failed: %v", port, err)
-		return
-	}
-	defer ln.Close()
-
-	_ = protocol.AcceptTunnel(channel, port)
-	log.Printf("[+] Notified client of TCP port %d", port)
-
-	done := make(chan struct{})
-	go func() {
-		_ = sshConn.Wait()
-		ln.Close()
-		close(done)
-	}()
-
-	var wg sync.WaitGroup
-	var connsLock sync.Mutex
-	conns := make(map[net.Conn]struct{})
-
-	// Ensure every external connection is closed once the forward ends;
-	// otherwise an idle peer would block wg.Wait() and keep the port reserved.
-	defer func() {
-		connsLock.Lock()
-		for c := range conns {
-			c.Close()
-		}
-		conns = nil
-		connsLock.Unlock()
-		wg.Wait()
-	}()
-
-	for id := 0; ; id++ {
-		conn, err := ln.Accept()
-		if err != nil {
-			select {
-			case <-done:
-			default:
-				log.Printf("[-] Forward accept error: %v", err)
-			}
-			return
-		}
-
-		if !allowedPeers.Allows(conn.RemoteAddr()) {
-			log.Printf("[-] Connection from %s rejected: not in allowed peers", conn.RemoteAddr())
-			conn.Close()
-			continue
-		}
-
-		connsLock.Lock()
-		if conns == nil {
-			connsLock.Unlock()
-			conn.Close()
-			return
-		}
-		conns[conn] = struct{}{}
-		connsLock.Unlock()
-
-		wg.Add(1)
-		go func(c net.Conn, idx int) {
-			defer wg.Done()
-			defer func() {
-				c.Close()
-				connsLock.Lock()
-				if conns != nil {
-					delete(conns, c)
-				}
-				connsLock.Unlock()
-			}()
-
-			ch2, reqs3, err := sshConn.OpenChannel("direct-tcpip", nil)
-			if err != nil {
-				log.Printf("[-] Open back-channel failed: %v", err)
-				return
-			}
-			go ssh.DiscardRequests(reqs3)
-			defer ch2.Close()
-
-			var cc sync.WaitGroup
-			cc.Add(2)
-			go func() {
-				defer cc.Done()
-				n, _ := io.Copy(ch2, c)
-				log.Printf("[*] Copied %d bytes to client for forward %d", n, idx)
-				ch2.CloseWrite()
-			}()
-			go func() {
-				defer cc.Done()
-				n, _ := io.Copy(c, ch2)
-				log.Printf("[*] Copied %d bytes to service for forward %d", n, idx)
-				if tc, ok := c.(*net.TCPConn); ok {
-					tc.CloseWrite()
-				}
-			}()
-			cc.Wait()
-			log.Printf("[+] Forward %d closed", idx)
-		}(conn, id)
-	}
-}
-
-func (s *ForwardServer) serveUDPForward(sshConn *ssh.ServerConn, channel ssh.Channel, allowedPeers allowlist.List, port int) {
-	pc, err := net.ListenPacket("udp", fmt.Sprintf("%s:%d", s.bindAddress, port))
-	if err != nil {
-		_ = protocol.RefuseTunnel(channel, protocol.StatusInternalError)
-		log.Printf("[-] Bind UDP port %d failed: %v", port, err)
-		return
-	}
-	defer pc.Close()
-
-	_ = protocol.AcceptTunnel(channel, port)
-	log.Printf("[+] Notified client of UDP port %d", port)
-
-	done := make(chan struct{})
-	go func() {
-		_ = sshConn.Wait()
-		pc.Close()
-		close(done)
-	}()
-
-	type udpPeerSession struct {
-		ch ssh.Channel
-	}
-
-	sessions := make(map[string]*udpPeerSession)
-	var sessionsLock sync.Mutex
-
-	closeSession := func(key string) {
-		sessionsLock.Lock()
-		sess, ok := sessions[key]
-		if ok {
-			delete(sessions, key)
-		}
-		sessionsLock.Unlock()
-		if ok {
-			sess.ch.Close()
-		}
-	}
-
-	buf := make([]byte, protocol.MaxDatagramSize)
-	for {
-		n, peerAddr, err := pc.ReadFrom(buf)
-		if err != nil {
-			select {
-			case <-done:
-				sessionsLock.Lock()
-				for key, sess := range sessions {
-					delete(sessions, key)
-					sess.ch.Close()
-				}
-				sessionsLock.Unlock()
-				return
-			default:
-				log.Printf("[-] UDP read failed on port %d: %v", port, err)
-				continue
-			}
-		}
-
-		if !allowedPeers.Allows(peerAddr) {
-			continue
-		}
-
-		key := peerAddr.String()
-		sessionsLock.Lock()
-		sess, ok := sessions[key]
-		if !ok {
-			ch2, reqs3, openErr := sshConn.OpenChannel("direct-tcpip", nil)
-			if openErr != nil {
-				sessionsLock.Unlock()
-				log.Printf("[-] Open UDP back-channel failed: %v", openErr)
-				continue
-			}
-			go ssh.DiscardRequests(reqs3)
-			sess = &udpPeerSession{ch: ch2}
-			sessions[key] = sess
-			go func(peer net.Addr, peerKey string, ch ssh.Channel) {
-				defer closeSession(peerKey)
-				for {
-					packet, readErr := protocol.ReadDatagram(ch)
-					if readErr != nil {
-						if readErr != io.EOF {
-							log.Printf("[-] UDP read from client failed (%s): %v", peerKey, readErr)
-						}
-						return
-					}
-					if _, writeErr := pc.WriteTo(packet, peer); writeErr != nil {
-						log.Printf("[-] UDP write to peer failed (%s): %v", peerKey, writeErr)
-						return
-					}
-				}
-			}(peerAddr, key, ch2)
-		}
-		sessionsLock.Unlock()
-
-		if err := protocol.WriteDatagram(sess.ch, buf[:n]); err != nil {
-			log.Printf("[-] UDP write to client failed (%s): %v", key, err)
-			closeSession(key)
-		}
+		go s.serveConnection(conn)
 	}
 }
