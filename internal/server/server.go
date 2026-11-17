@@ -108,11 +108,6 @@ func (s *ForwardServer) handleSSHConnection(nc net.Conn) {
 	go ssh.DiscardRequests(reqs)
 
 	log.Printf("[+] New SSH connection from %s", sshConn.RemoteAddr())
-	if !s.allowedClients.Allows(sshConn.RemoteAddr()) {
-		log.Printf("[-] SSH client %s not allowed", sshConn.RemoteAddr())
-		return
-	}
-	// channel loop
 	for newCh := range chans {
 		if newCh.ChannelType() != "direct-tcpip" {
 			newCh.Reject(ssh.UnknownChannelType, "unsupported channel type")

@@ -57,7 +57,7 @@ func newTestSSHConfigs(t *testing.T) (*ssh.ServerConfig, *ssh.ClientConfig) {
 	return serverCfg, clientCfg
 }
 
-func TestHandleSSHConnection_RejectsDisallowedIP(t *testing.T) {
+func TestHandleSSHConnection_TellsDisallowedClientWhyItIsRefused(t *testing.T) {
 	serverCfg, clientCfg := newTestSSHConfigs(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -96,12 +96,23 @@ func TestHandleSSHConnection_RejectsDisallowedIP(t *testing.T) {
 		t.Fatalf("ssh.NewClientConn returned error: %v", err)
 	}
 	client := ssh.NewClient(conn, chans, reqs)
-	defer client.Close()
 
+	channel, channelRequests, err := client.OpenChannel("direct-tcpip", nil)
+	if err != nil {
+		t.Fatalf("OpenChannel: %v", err)
+	}
+	go ssh.DiscardRequests(channelRequests)
+
+	_, err = protocol.RequestTunnel(channel, protocol.TunnelRequest{Transport: protocol.TCP})
+	if !errors.Is(err, protocol.StatusPeerNotAllowed) {
+		t.Errorf("RequestTunnel error = %v, want %v", err, protocol.StatusPeerNotAllowed)
+	}
+
+	client.Close()
 	select {
 	case <-serverDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("handleSSHConnection did not return after rejecting disallowed IP")
+		t.Fatal("handleSSHConnection did not return after the client disconnected")
 	}
 }
 

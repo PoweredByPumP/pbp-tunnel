@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/poweredbypump/pbp-tunnel/internal/client"
 	"github.com/poweredbypump/pbp-tunnel/internal/config"
+	"github.com/poweredbypump/pbp-tunnel/internal/protocol"
 	"github.com/poweredbypump/pbp-tunnel/internal/server"
 )
 
@@ -67,6 +69,22 @@ func TestTCPTunnel_DisconnectsPeersOutsideAllowedList(t *testing.T) {
 	}
 }
 
+func TestTunnelServer_RefusesClientsOutsideAllowedList(t *testing.T) {
+	exposedPort := freeTCPPort(t)
+
+	sshPort, _ := startTunnelServer(t, exposedPort, "192.0.2.1")
+	clientStopped := startTunnelClient(t, sshPort, "tcp", startTCPEchoService(t), exposedPort)
+
+	select {
+	case err := <-clientStopped:
+		if !errors.Is(err, protocol.StatusPeerNotAllowed) {
+			t.Errorf("client stopped with %v, want %v", err, protocol.StatusPeerNotAllowed)
+		}
+	case <-time.After(readyTimeout):
+		t.Fatalf("client outside the allowed list was not refused within %v", readyTimeout)
+	}
+}
+
 func TestUDPTunnel_ForwardsDatagramsToLocalService(t *testing.T) {
 	localServicePort := startUDPEchoService(t)
 	exposedPort := freeUDPPort(t)
@@ -104,9 +122,10 @@ func TestUDPTunnel_ForwardsDatagramsToLocalService(t *testing.T) {
 
 // startTunnelServer runs a pbp-tunnel server that only allows exposedPort to be forwarded.
 // The server has no shutdown mechanism yet, so it keeps running until the test binary exits.
-func startTunnelServer(t *testing.T, exposedPort int) (sshPort int, stopped <-chan error) {
+func startTunnelServer(t *testing.T, exposedPort int, allowedClients ...string) (sshPort int, stopped <-chan error) {
 	t.Helper()
 	params := &config.ServerParameters{
+		AllowedIPs:         allowedClients,
 		BindAddress:        loopback,
 		BindPort:           freeTCPPort(t),
 		PortRangeStart:     exposedPort,
