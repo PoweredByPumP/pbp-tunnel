@@ -2,16 +2,12 @@ package config
 
 import (
 	"bufio"
-	_ "embed"
+	"encoding/json"
 	"fmt"
-	"html/template"
 	"os"
 	"strconv"
 	"strings"
 )
-
-//go:embed templates/config.json.tmpl
-var configJsonTemplate string
 
 // GenerateConfigTemplate interactively prompts the user and writes a config file
 func GenerateConfigTemplate() error {
@@ -55,18 +51,23 @@ func GenerateConfigTemplate() error {
 	}
 
 	outFile := ask("Output file path", "config.json")
-	f, err := os.Create(outFile)
-	if err != nil {
-		return fmt.Errorf("Error creating file: %w", err)
-	}
-	defer f.Close()
-
-	tmpl := template.Must(template.New("config").Parse(configJsonTemplate))
-	if err := tmpl.Execute(f, config); err != nil {
-		return fmt.Errorf("Error generating config: %w", err)
+	if err := writeConfigFile(outFile, config); err != nil {
+		return err
 	}
 
 	fmt.Printf("Configuration written to %s\n", outFile)
+	return nil
+}
+
+// writeConfigFile is readable by its owner only, since the file holds a password.
+func writeConfigFile(path string, config AppConfig) error {
+	encoded, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode config: %w", err)
+	}
+	if err := os.WriteFile(path, append(encoded, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
 	return nil
 }
 

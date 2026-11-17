@@ -97,19 +97,19 @@ type AppConfig struct {
 // Fields may be set via JSON file or environment variables
 // Endpoint and EndpointPort specify the SSH server to connect to
 type ClientParameters struct {
-	Endpoint       string      `json:"endpoint,omitempty"`
-	EndpointPort   int         `json:"port,omitempty"`
-	Username       string      `json:"username,omitempty"`
-	Password       string      `json:"password,omitempty"`
-	PrivateKeyPath string      `json:"identity,omitempty"`
-	HostKeyPath    string      `json:"host_key,omitempty"`
-	LocalHost      string      `json:"local_host,omitempty"`
-	LocalPort      int         `json:"local_port,omitempty"`
-	RemoteHost     string      `json:"remote_host,omitempty"`
-	RemotePort     int         `json:"remote_port,omitempty"`
-	Protocol       string      `json:"protocol,omitempty"`
-	HostKeyLevel   int         `json:"host_key_level,omitempty"`
-	AllowedIPs     StringArray `json:"allowed_ips,omitempty"`
+	Endpoint       string      `json:"endpoint"`
+	EndpointPort   int         `json:"port"`
+	Username       string      `json:"username"`
+	Password       string      `json:"password"`
+	PrivateKeyPath string      `json:"identity"`
+	HostKeyPath    string      `json:"host_key"`
+	LocalHost      string      `json:"local_host"`
+	LocalPort      int         `json:"local_port"`
+	RemoteHost     string      `json:"remote_host"`
+	RemotePort     int         `json:"remote_port"`
+	Protocol       string      `json:"protocol"`
+	HostKeyLevel   int         `json:"host_key_level"`
+	AllowedIPs     StringArray `json:"allowed_ips"`
 }
 
 // Validate ensures the ClientParameters contains all required fields and valid values
@@ -158,17 +158,17 @@ func (cp *ClientParameters) Validate() error {
 // PrivateRsaPath, PrivateEcdsaPath, PrivateEd25519Path are host key files
 
 type ServerParameters struct {
-	BindAddress        string      `json:"bind,omitempty"`
-	BindPort           int         `json:"port,omitempty"`
-	PortRangeStart     int         `json:"port_range_start,omitempty"`
-	PortRangeEnd       int         `json:"port_range_end,omitempty"`
-	Username           string      `json:"username,omitempty"`
-	Password           string      `json:"password,omitempty"`
-	PrivateRsaPath     string      `json:"private_rsa_path,omitempty"`
-	PrivateEcdsaPath   string      `json:"private_ecdsa_path,omitempty"`
-	PrivateEd25519Path string      `json:"private_ed25519_path,omitempty"`
-	AuthorizedKeysPath string      `json:"authorized_keys_path,omitempty"`
-	AllowedIPs         StringArray `json:"allowed_ips,omitempty"`
+	BindAddress        string      `json:"bind"`
+	BindPort           int         `json:"port"`
+	PortRangeStart     int         `json:"port_range_start"`
+	PortRangeEnd       int         `json:"port_range_end"`
+	Username           string      `json:"username"`
+	Password           string      `json:"password"`
+	PrivateRsaPath     string      `json:"private_rsa_path"`
+	PrivateEcdsaPath   string      `json:"private_ecdsa_path"`
+	PrivateEd25519Path string      `json:"private_ed25519_path"`
+	AuthorizedKeysPath string      `json:"authorized_keys_path"`
+	AllowedIPs         StringArray `json:"allowed_ips"`
 }
 
 // Validate ensures the ServerParameters contains all required fields and valid values

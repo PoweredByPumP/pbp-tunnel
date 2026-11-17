@@ -137,6 +137,28 @@ func TestGenerateConfigTemplate_ClientDefaults(t *testing.T) {
 	}
 }
 
+func TestWriteConfigFile_KeepsSpecialCharactersIntact(t *testing.T) {
+	path := filepath.Join(makeTempDir(t), "config.json")
+	password := `p&ss<word>"'\`
+	written := AppConfig{Type: "server", Server: &ServerParameters{Password: password, AllowedIPs: []string{"10.0.0.0/8"}}}
+
+	if err := writeConfigFile(path, written); err != nil {
+		t.Fatalf("writeConfigFile: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read AppConfig
+	if err := json.Unmarshal(data, &read); err != nil {
+		t.Fatalf("generated file is not valid JSON: %v\n%s", err, data)
+	}
+	if read.Server == nil || read.Server.Password != password {
+		t.Errorf("password read back = %+v, want %q", read.Server, password)
+	}
+}
+
 func TestGenerateConfigTemplate_ServerDefaults(t *testing.T) {
 	// First answer 'server', then blanks
 	inputs := "server\n" + strings.Repeat("\n", 8)
