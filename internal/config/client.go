@@ -15,7 +15,6 @@ type ClientParameters struct {
 	HostKeyPath string `json:"host_key"`
 	LocalHost   string `json:"local_host"`
 	LocalPort   int    `json:"local_port"`
-	RemoteHost  string `json:"remote_host"`
 	// RemotePort is the port to expose on the server; 0 lets the server choose.
 	RemotePort int    `json:"remote_port"`
 	Protocol   string `json:"protocol"`
@@ -30,7 +29,6 @@ func DefaultClientParameters() *ClientParameters {
 		EndpointPort: DefaultPort,
 		LocalHost:    "localhost",
 		LocalPort:    80,
-		RemoteHost:   "localhost",
 		Protocol:     "tcp",
 		HostKeyLevel: 2,
 	}
@@ -54,9 +52,6 @@ func (p *ClientParameters) Validate() error {
 	}
 	if p.LocalPort <= 0 || p.LocalPort > 65535 {
 		return fmt.Errorf("local_port must be between 1 and 65535")
-	}
-	if p.RemoteHost == "" {
-		return fmt.Errorf("remote_host is required")
 	}
 	if p.RemotePort < 0 || p.RemotePort > 65535 {
 		return fmt.Errorf("remote_port must be between 0 and 65535")

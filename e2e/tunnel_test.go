@@ -153,7 +153,6 @@ func startTunnelClient(t *testing.T, sshPort int, protocol string, localServiceP
 		Password:     tunnelPassword,
 		LocalHost:    loopback,
 		LocalPort:    localServicePort,
-		RemoteHost:   loopback,
 		RemotePort:   exposedPort,
 		Protocol:     protocol,
 	}

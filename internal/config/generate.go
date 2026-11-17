@@ -43,7 +43,6 @@ func askClientParameters(questions *questionnaire) *ClientParameters {
 		Password:     questions.ask("Password", "changeme"),
 		LocalHost:    questions.ask("Local host to forward", "localhost"),
 		LocalPort:    questions.askInt("Local port", 8080),
-		RemoteHost:   questions.ask("Remote host to expose", "localhost"),
 		RemotePort:   questions.askInt("Remote port to request", 0),
 		Protocol:     questions.ask("Forward protocol (tcp/udp)", "tcp"),
 	}

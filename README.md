@@ -104,7 +104,6 @@ With flags:
   --password mypass \
   --local-host localhost \
   --local-port 8080 \
-  --remote-host localhost \
   --remote-port 0 \
   --protocol tcp \
   --host-key-level 2 \
@@ -159,7 +158,6 @@ another file:
     "password": "mypass",
     "local_host": "localhost",
     "local_port": 8080,
-    "remote_host": "localhost",
     "remote_port": 0,
     "protocol": "tcp"
   }
@@ -192,7 +190,6 @@ the program with an error.
 | `PBP_TUNNEL_HOST_KEY_LEVEL`            | Host key check level (client mode)           |
 | `PBP_TUNNEL_LOCAL_HOST`                | Local service address (client mode)          |
 | `PBP_TUNNEL_LOCAL_PORT`                | Local service port (client mode)             |
-| `PBP_TUNNEL_REMOTE_HOST`               | Remote host to expose (client mode)          |
 | `PBP_TUNNEL_REMOTE_PORT`               | Remote port to request (0 for dynamic)       |
 | `PBP_TUNNEL_PROTOCOL`                  | Forward protocol: `tcp` (default) or `udp`   |
 | `PBP_TUNNEL_BIND`                      | Server bind address                          |

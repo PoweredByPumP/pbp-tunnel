@@ -20,7 +20,6 @@ func TestClientParameters_Validate(t *testing.T) {
 		{name: "missing local host", change: func(p *ClientParameters) { p.LocalHost = "" }, wantErr: "local_host is required"},
 		{name: "local port 0", change: func(p *ClientParameters) { p.LocalPort = 0 }, wantErr: "local_port must be between 1 and 65535"},
 		{name: "local port too high", change: func(p *ClientParameters) { p.LocalPort = 70000 }, wantErr: "local_port must be between 1 and 65535"},
-		{name: "missing remote host", change: func(p *ClientParameters) { p.RemoteHost = "" }, wantErr: "remote_host is required"},
 		{name: "negative remote port", change: func(p *ClientParameters) { p.RemotePort = -1 }, wantErr: "remote_port must be between 0 and 65535"},
 		{name: "remote port too high", change: func(p *ClientParameters) { p.RemotePort = 70000 }, wantErr: "remote_port must be between 0 and 65535"},
 		{name: "unknown protocol", change: func(p *ClientParameters) { p.Protocol = "sctp" }, wantErr: "protocol must be either tcp or udp"},
@@ -35,7 +34,6 @@ func TestClientParameters_Validate(t *testing.T) {
 				Password:     "pass",
 				LocalHost:    "localhost",
 				LocalPort:    8080,
-				RemoteHost:   "localhost",
 				RemotePort:   9090,
 				Protocol:     "tcp",
 			}

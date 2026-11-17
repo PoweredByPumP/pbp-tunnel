@@ -10,7 +10,6 @@
     "host_key": "/path/to/the/host_key",
     "local_host": "localhost",
     "local_port": 80,
-    "remote_host": "localhost",
     "remote_port": 80,
     "protocol": "tcp"
   },

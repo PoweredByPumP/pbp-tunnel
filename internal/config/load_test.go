@@ -42,6 +42,16 @@ func TestLoadClientParameters_EachSourceOverridesThePreviousOne(t *testing.T) {
 	}
 }
 
+func TestLoadClientParameters_AcceptsConfigFilesWithTheRemovedRemoteHost(t *testing.T) {
+	useConfigFile(t, `{"client": {"endpoint": "tunnel.example.com", "remote_host": "localhost"}}`)
+
+	params, err := LoadClientParameters(newSilentFlagSet(), nil)
+
+	if err != nil || params.Endpoint != "tunnel.example.com" {
+		t.Errorf("LoadClientParameters = %+v, %v; want the file to load", params, err)
+	}
+}
+
 func TestLoadServerParameters_EachSourceOverridesThePreviousOne(t *testing.T) {
 	useConfigFile(t, `{"server": {"bind": "10.0.0.1", "port_range_start": 1000, "username": "from-file"}}`)
 	t.Setenv("PBP_TUNNEL_PORT_RANGE_START", "2000")

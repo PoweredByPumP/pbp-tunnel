@@ -16,7 +16,6 @@ func (p *ClientParameters) registerFlags(flags *flag.FlagSet) {
 	flags.StringVar(&p.HostKeyPath, "host-key", p.HostKeyPath, "Known host key file (optional)")
 	flags.StringVar(&p.LocalHost, "local-host", p.LocalHost, "Local address to forward")
 	flags.IntVar(&p.LocalPort, "local-port", p.LocalPort, "Local port to forward")
-	flags.StringVar(&p.RemoteHost, "remote-host", p.RemoteHost, "Remote host to expose (unused)")
 	flags.IntVar(&p.RemotePort, "remote-port", p.RemotePort, "Remote port to request (0 = random)")
 	flags.StringVar(&p.Protocol, "protocol", p.Protocol, "Forwarding protocol (tcp|udp)")
 	flags.IntVar(&p.HostKeyLevel, "host-key-level", p.HostKeyLevel, "Host key level (0=no check,1=warn,2=strict)")

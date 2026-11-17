@@ -14,7 +14,7 @@ func TestGenerateConfigFile_WritesClientAnswers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.json")
 	answers := []string{
 		"client", "1", "tunnel.example.com", "2222", "alice", `p&ss<w>"rd\`,
-		"127.0.0.1", "3000", "localhost", "40000", "udp", path,
+		"127.0.0.1", "3000", "40000", "udp", path,
 	}
 
 	if err := GenerateConfigFile(answersReader(answers...), io.Discard); err != nil {
@@ -24,7 +24,7 @@ func TestGenerateConfigFile_WritesClientAnswers(t *testing.T) {
 	want := AppConfig{Type: ModeClient, Client: &ClientParameters{
 		HostKeyLevel: 1, Endpoint: "tunnel.example.com", EndpointPort: 2222,
 		Username: "alice", Password: `p&ss<w>"rd\`,
-		LocalHost: "127.0.0.1", LocalPort: 3000, RemoteHost: "localhost", RemotePort: 40000,
+		LocalHost: "127.0.0.1", LocalPort: 3000, RemotePort: 40000,
 		Protocol: "udp",
 	}}
 	if got := readGeneratedFile(t, path); !reflect.DeepEqual(got, want) {
@@ -58,7 +58,7 @@ func TestGenerateConfigFile_WritesServerAnswers(t *testing.T) {
 
 func TestGenerateConfigFile_EmptyAnswersKeepTheSuggestedValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	emptyAnswers := make([]string, 11)
+	emptyAnswers := make([]string, 10)
 
 	if err := GenerateConfigFile(answersReader(append(emptyAnswers, path)...), io.Discard); err != nil {
 		t.Fatalf("GenerateConfigFile: %v", err)
