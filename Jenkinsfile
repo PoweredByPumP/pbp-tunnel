@@ -1,6 +1,6 @@
 @Library('pbpipelines') _
 
-String projectVersion = "0.3.0"
+String projectVersion = "0.3.1"
 
 getIDGoPipelineV2(projectName: "pbp-tunnel",
 				  projectVersion: projectVersion,
