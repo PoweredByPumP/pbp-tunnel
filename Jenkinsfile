@@ -14,4 +14,5 @@ getIDGoPipelineV2(projectName: "pbp-tunnel",
 				  buildForLinux: true,
 				  buildForLinuxArm64: true,
 				  buildForWindows: true,
-				  buildForWindowsArm64: true)
+				  buildForWindowsArm64: true,
+				  buildForDarwinArm64: true)
